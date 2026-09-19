@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* ── CutPilot design tokens (dark-first, professional NLE aesthetic) ─────────── */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-bg: #0b0c10;
+  --color-panel: #121319;
+  --color-panel-2: #171821;
+  --color-elevated: #1c1e29;
+  --color-border: #262836;
+  --color-border-strong: #343749;
+  --color-fg: #e7e8ee;
+  --color-fg-muted: #9a9db0;
+  --color-fg-subtle: #666a80;
+  --color-accent: #7c5cff;
+  --color-accent-hover: #8f74ff;
+  --color-accent-fg: #ffffff;
+  --color-success: #2fd18a;
+  --color-warning: #f5b53f;
+  --color-danger: #ff5c7a;
+  --color-info: #4cc2ff;
+
+  --color-track-video: #3b82f6;
+  --color-track-audio: #22c55e;
+  --color-track-caption: #f59e0b;
+  --color-track-overlay: #ec4899;
+  --color-track-broll: #06b6d4;
+  --color-track-music: #a855f7;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-size: 13px;
+}
+
+* { border-color: var(--color-border); }
+
+::selection { background: color-mix(in srgb, var(--color-accent) 45%, transparent); }
+
+/* Thin scrollbars, editor-style */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #2c2e3c; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: #3b3e50; background-clip: padding-box; }
+
+/* Utility layers */
+@layer utilities {
+  .panel { background: var(--color-panel); border: 1px solid var(--color-border); }
+  .panel-header { @apply flex h-9 items-center gap-2 border-b px-3 text-[11px] font-semibold uppercase tracking-wider text-fg-muted; }
+  .focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/60; }
+  .no-select { user-select: none; -webkit-user-select: none; }
+  .text-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+}
+
+@keyframes shimmer { from { background-position: -400px 0; } to { background-position: 400px 0; } }
+.skeleton {
+  background: linear-gradient(90deg, #171821 25%, #1f2130 50%, #171821 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(124,92,255,.5);} 70% { box-shadow: 0 0 0 8px rgba(124,92,255,0);} 100% { box-shadow: 0 0 0 0 rgba(124,92,255,0);} }
+.pulse-ring { animation: pulse-ring 1.6s infinite; }

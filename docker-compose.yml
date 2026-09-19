@@ -1,0 +1,126 @@
+# CutPilot AI — local development stack.  `docker compose up` starts everything.
+name: cutpilot
+
+x-api-env: &api-env
+  env_file: .env
+  environment:
+    DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://cutpilot:cutpilot@postgres:5432/cutpilot}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    LOCAL_STORAGE_ROOT: /data/storage
+    WORK_DIR: /data/work
+    APP_URL: ${APP_URL:-http://localhost:3000}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cutpilot
+      POSTGRES_PASSWORD: cutpilot
+      POSTGRES_DB: cutpilot
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cutpilot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["s3"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - media-data:/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker-media:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    <<: *api-env
+    command: ["/app/scripts/start-worker.sh", "media,render", "2"]
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - media-data:/data
+
+  worker-ai:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    <<: *api-env
+    command: ["/app/scripts/start-worker.sh", "ai", "2"]
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - media-data:/data
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      target: dev
+    env_file: .env
+    environment:
+      INTERNAL_API_URL: http://api:8000
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-CutPilot AI}
+      WATCHPACK_POLLING: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./apps/web:/app
+      - web-node-modules:/app/node_modules
+      - web-next:/app/.next
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  minio-data:
+  media-data:
+  web-node-modules:
+  web-next:
