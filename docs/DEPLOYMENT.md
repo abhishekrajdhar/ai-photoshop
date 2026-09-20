@@ -56,6 +56,28 @@ workers**, **Neon/Supabase → Postgres**, **Upstash → Redis**, **R2/S3 → st
 4. Redeploy the web project; `GET https://api.example.com/api/ready` should report `ready`, and the
    AI panel's status banner disappears once a provider key is configured on the API.
 
+## All-in-one container (no object storage yet)
+
+`infrastructure/deploy/render-all-in-one.yaml` / `apps/api/scripts/start-all.sh` run Redis, the API and
+the workers in **one** container with a persistent disk at `/data`. Use it for a single-instance
+deployment on Render, Railway or Fly when you don't have S3/R2 yet; move to `render.yaml` +
+`STORAGE_PROVIDER=s3` to scale the API and workers independently.
+
+## Hugging Face Space (free single-container backend)
+
+A free Docker Space (2 vCPU, 16 GB RAM) can host the all-in-one backend:
+
+1. Create a **Docker** Space (public), then push this repository to it:
+   `git remote add hf https://huggingface.co/spaces/<user>/<space> && git push hf main`
+   (the root `Dockerfile` and README front-matter are already in place; port 7860).
+2. Space → Settings → **Secrets**: `DATABASE_URL` (Supabase pooler URI, `postgresql+psycopg://…`), `DB_SCHEMA=cutpilot`,
+   `JWT_SECRET` (long random string), `ANTHROPIC_API_KEY`, `AI_PROVIDER=anthropic`, `AI_FALLBACK_PROVIDER=` (empty),
+   `APP_URL=https://<your-vercel-app>`, `COOKIE_SECURE=true`, `COOKIE_SAMESITE=none`, `CORS_ORIGINS` (extra origins).
+3. Point the web app at it: Vercel env `NEXT_PUBLIC_API_BASE=https://<user>-<space>.hf.space/api` and redeploy.
+
+Limits: the container disk is ephemeral (media is lost on rebuild/restart — add R2/S3 with `STORAGE_PROVIDER=s3`
+for durability) and the Space sleeps after ~48 h idle.
+
 ## Sharing a database (Supabase / existing PostgreSQL)
 
 Set `DB_SCHEMA=cutpilot` (any name) to keep every CutPilot table — and Alembic's version table — inside its

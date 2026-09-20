@@ -1,0 +1,31 @@
+# Render blueprint — single service running Redis + API + workers with a persistent disk.
+# Simplest production layout when you don't have S3/R2 yet. Scale out later with render.yaml.
+services:
+  - type: web
+    name: cutpilot
+    runtime: docker
+    plan: standard            # 2 GB RAM: needed for faster-whisper + FFmpeg renders
+    region: singapore
+    dockerfilePath: infrastructure/docker/api.Dockerfile
+    dockerCommand: /app/scripts/start-all.sh
+    healthCheckPath: /api/health
+    disk:
+      name: cutpilot-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - { key: APP_ENV, value: production }
+      - { key: COOKIE_SECURE, value: "true" }
+      - { key: STORAGE_PROVIDER, value: local }
+      - { key: LOCAL_STORAGE_ROOT, value: /data/storage }
+      - { key: WORK_DIR, value: /data/work }
+      - { key: WORKER_CONCURRENCY, value: "2" }
+      - { key: JWT_SECRET, generateValue: true }
+      - { key: DATABASE_URL, sync: false }
+      - { key: DB_SCHEMA, value: cutpilot }
+      - { key: APP_URL, sync: false }
+      - { key: CORS_ORIGINS, sync: false }
+      - { key: COOKIE_SAMESITE, value: none }
+      - { key: ANTHROPIC_API_KEY, sync: false }
+      - { key: AI_PROVIDER, value: anthropic }
+      - { key: AI_FALLBACK_PROVIDER, value: "" }

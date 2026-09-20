@@ -1,4 +1,17 @@
+---
+title: CutPilot AI API
+emoji: 🎬
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # CutPilot AI
+
+> The YAML block above is Hugging Face Spaces metadata: pushing this repository to a Docker Space
+> builds the root `Dockerfile` (Redis + API + workers in one container). See docs/DEPLOYMENT.md.
 
 AI-assisted, non-destructive video editing platform. Upload raw footage, describe the edit in
 natural language, review the proposed operations on a professional multi-track timeline, adjust

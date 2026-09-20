@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # ffmpeg/ffprobe for media processing; libgl for OpenCV; fonts for caption burn-in
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg libgl1 libglib2.0-0 fonts-dejavu-core fonts-inter curl \
+        ffmpeg libgl1 libglib2.0-0 fonts-dejavu-core fonts-inter curl redis-server \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
