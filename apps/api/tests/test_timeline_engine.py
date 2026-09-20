@@ -199,3 +199,35 @@ def test_reframe_updates_sequence_format() -> None:
     result = apply_operations(doc, [EditOperation(type="reframe", params={"aspect_ratio": "9:16"})])
     assert (result.document.settings.width, result.document.settings.height) == (1080, 1920)
     assert result.document.settings.reframe["mode"] == "track"
+
+
+def test_remove_range_keeps_linked_pieces_paired() -> None:
+    doc = make_doc()
+    result = apply_operations(
+        doc, [EditOperation(type="remove_segment", asset_id="asset", start=10, end=12)]
+    )
+    v = result.document.primary_video_track().sorted_clips()
+    a = result.document.primary_audio_track().sorted_clips()
+    assert len(v) == 2 and len(a) == 2
+    assert v[0].linked_clip_id == a[0].id and a[0].linked_clip_id == v[0].id
+    assert v[1].linked_clip_id == a[1].id and a[1].linked_clip_id == v[1].id
+    # Trimming the right video piece through the API-style trim also trims its (correct) audio partner
+    trimmed = apply_operations(
+        result.document,
+        [
+            EditOperation(
+                type="trim",
+                source_clip_id=v[1].id,
+                time_ref="timeline",
+                params={"side": "out", "timeline_end": 40.0},
+            )
+        ],
+    ).document
+    assert trimmed.primary_audio_track().sorted_clips()[1].timeline_end == pytest.approx(40.0)
+    # Removing the very start keeps ids stable on the surviving piece
+    head = apply_operations(
+        doc, [EditOperation(type="remove_segment", asset_id="asset", start=0, end=5)]
+    ).document
+    v0 = head.primary_video_track().clips[0]
+    a0 = head.primary_audio_track().clips[0]
+    assert v0.linked_clip_id == a0.id and a0.linked_clip_id == v0.id

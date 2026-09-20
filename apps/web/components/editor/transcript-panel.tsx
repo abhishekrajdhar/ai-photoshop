@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BookOpen, FileText, Loader2, Pencil, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,9 @@ import { useActiveAnalysisJobs, useAIStatus, useAnalysis, useRunAnalysis, useSce
 import { ApiError } from "@/lib/api";
 import type { Transcript, TranscriptSegment } from "@/lib/types";
 import { cn, formatDuration, formatTime } from "@/lib/utils";
+import { useTimelineActions } from "@/components/timeline/use-timeline-actions";
+import { isSourceTimePresent, presentSourceRanges, sourceTimeToTimeline } from "@/lib/timeline-engine";
+import { Scissors } from "lucide-react";
 import { useEditorStore } from "@/stores/editor";
 import { JOB_LABEL } from "@/stores/jobs";
 
@@ -110,10 +113,54 @@ export function TranscriptPanel({ projectId }: { projectId: string }) {
   );
 }
 
+export interface WordSel { anchor: number; focus: number }
+
 function TranscriptView({ projectId, transcript }: { projectId: string; transcript: Transcript }) {
   const speakers = useMemo(() => Object.fromEntries(transcript.speakers.map((s) => [s.id, s])), [transcript.speakers]);
   const { renameSpeaker } = useTranscriptMutations(projectId);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const actions = useTimelineActions(projectId);
+  const allWords = useMemo(() => transcript.segments.flatMap((s) => s.words), [transcript.segments]);
+  const wordIndex = useMemo(() => new Map(allWords.map((w, i) => [w.id, i])), [allWords]);
+  const [sel, setSel] = useState<WordSel | null>(null);
+  const dragging = useRef(false);
+  const present = useMemo(() => (actions.doc ? presentSourceRanges(actions.doc, transcript.asset_id) : null), [actions.doc, transcript.asset_id]);
+  const range = sel ? [Math.min(sel.anchor, sel.focus), Math.max(sel.anchor, sel.focus)] as const : null;
+  const cutSelection = () => {
+    if (!range) return;
+    const words = allWords.slice(range[0], range[1] + 1);
+    if (!words.length) return;
+    // Merge into contiguous source ranges (gaps > 1s between words start a new range)
+    const segs: { start: number; end: number }[] = [];
+    for (const w of words) {
+      const last = segs[segs.length - 1];
+      if (last && w.start - last.end <= 1.0) last.end = Math.max(last.end, w.end);
+      else segs.push({ start: w.start, end: w.end });
+    }
+    const label = `Cut "${words.slice(0, 4).map((w) => w.text).join(" ")}${words.length > 4 ? "…" : ""}"`;
+    void actions.removeSourceRanges(transcript.asset_id, segs, label);
+    setSel(null);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && range) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cutSelection();
+      } else if (e.key === "Escape" && sel) setSel(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, sel, allWords, transcript.asset_id]);
+  useEffect(() => {
+    const up = () => (dragging.current = false);
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
+  const selection = { range, present, wordIndex, begin: (i: number) => { dragging.current = true; setSel({ anchor: i, focus: i }); }, extend: (i: number) => { if (dragging.current) setSel((s) => (s ? { ...s, focus: i } : s)); }, assetId: transcript.asset_id };
   const totalWords = transcript.segments.reduce((n, s) => n + s.words.length, 0);
   const fillerCount = transcript.segments.reduce((n, s) => n + s.words.filter((w) => w.is_filler).length, 0);
   return (
@@ -123,8 +170,17 @@ function TranscriptView({ projectId, transcript }: { projectId: string; transcri
         {transcript.language && <Badge variant="outline">{transcript.language}</Badge>}
         <span>{totalWords} words</span>
         {fillerCount > 0 && <span>· <span className="text-warning">{fillerCount} fillers</span></span>}
-        <span className="ml-auto">click a word to seek · double-click text to edit</span>
+        <span className="ml-auto">click a word to seek · drag to select · ⌫ cuts selection</span>
       </div>
+      {range && (
+        <div className="sticky top-0 z-10 mb-2 flex items-center justify-between rounded-md border border-accent/50 bg-panel-2 px-2 py-1.5 text-[11.5px]">
+          <span>{range[1] - range[0] + 1} words selected · {formatTime(allWords[range[0]]?.start ?? 0)}–{formatTime(allWords[range[1]]?.end ?? 0)}</span>
+          <div className="flex gap-1">
+            <Button size="xs" variant="ghost" onClick={() => setSel(null)}>Clear</Button>
+            <Button size="xs" onClick={cutSelection}><Scissors /> Cut from timeline</Button>
+          </div>
+        </div>
+      )}
       {transcript.segments.map((seg, i) => {
         const prev = transcript.segments[i - 1];
         const showSpeaker = !prev || prev.speaker_id !== seg.speaker_id;
@@ -136,7 +192,7 @@ function TranscriptView({ projectId, transcript }: { projectId: string; transcri
                 {speaker.display_name} <Pencil className="size-2.5 opacity-60" />
               </button>
             )}
-            <SegmentRow projectId={projectId} segment={seg} />
+            <SegmentRow projectId={projectId} segment={seg} selection={selection} />
           </div>
         );
       })}
@@ -161,18 +217,25 @@ function TranscriptView({ projectId, transcript }: { projectId: string; transcri
   );
 }
 
-function SegmentRow({ projectId, segment }: { projectId: string; segment: TranscriptSegment }) {
+interface Selection { range: readonly [number, number] | null; present: [number, number][] | null; wordIndex: Map<string, number>; begin: (i: number) => void; extend: (i: number) => void; assetId: string }
+
+function SegmentRow({ projectId, segment, selection }: { projectId: string; segment: TranscriptSegment; selection: Selection }) {
   const playhead = useEditorStore((s) => s.playhead);
   const setPlayhead = useEditorStore((s) => s.setPlayhead);
   const set = useEditorStore((s) => s.set);
+  const actions = useTimelineActions(projectId);
   const { updateSegment, updateWord } = useTranscriptMutations(projectId);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(segment.text);
-  const activeSeg = playhead >= segment.start && playhead < segment.end;
-  const seek = (t: number) => {
-    setPlayhead(t);
+  // Map source time → timeline time so the active-word highlight follows cuts.
+  const segStartTl = actions.doc ? sourceTimeToTimeline(actions.doc, selection.assetId, segment.start) : null;
+  const activeSeg = segStartTl !== null && playhead >= segStartTl && playhead < segStartTl + (segment.end - segment.start);
+  const seek = (sourceT: number) => {
+    const tl = actions.doc ? sourceTimeToTimeline(actions.doc, selection.assetId, sourceT) : null;
+    setPlayhead(tl ?? sourceT);
     set({ previewSource: { kind: "timeline" } });
   };
+  const wordTl = (s: number) => (actions.doc ? sourceTimeToTimeline(actions.doc, selection.assetId, s) : null);
   if (editing) {
     return (
       <div className="mb-1 rounded-md border border-accent/50 bg-panel-2 p-2">
@@ -189,21 +252,32 @@ function SegmentRow({ projectId, segment }: { projectId: string; segment: Transc
       <button className="mt-0.5 w-11 shrink-0 text-left text-mono text-[10.5px] text-fg-subtle hover:text-accent" onClick={() => seek(segment.start)}>{formatTime(segment.start)}</button>
       <p className="flex-1 text-[12.5px] leading-relaxed">
         {segment.words.length > 0
-          ? segment.words.map((w) => (
+          ? segment.words.map((w) => {
+              const idx = selection.wordIndex.get(w.id) ?? -1;
+              const selected = !!selection.range && idx >= selection.range[0] && idx <= selection.range[1];
+              const removed = selection.present ? !isSourceTimePresent(selection.present, (w.start + w.end) / 2) : false;
+              const tl = wordTl(w.start);
+              const active = tl !== null && playhead >= tl && playhead < tl + (w.end - w.start);
+              return (
               <span
                 key={w.id}
-                onClick={() => seek(w.start)}
+                onMouseDown={(e) => { if (e.button === 0) { e.preventDefault(); selection.begin(idx); } }}
+                onMouseEnter={() => selection.extend(idx)}
+                onClick={() => { if (!selection.range || selection.range[0] === selection.range[1]) seek(w.start); }}
                 onContextMenu={(e) => { e.preventDefault(); updateWord.mutate({ id: w.id, is_filler: !w.is_filler }); }}
-                title={w.is_filler ? "Filler word (right-click to unmark)" : `${formatTime(w.start)} (right-click to mark as filler)`}
+                title={removed ? "Removed from timeline" : w.is_filler ? "Filler word (right-click to unmark)" : `${formatTime(w.start)} (right-click to mark as filler)`}
                 className={cn(
                   "cursor-pointer rounded-sm px-[1px] hover:bg-accent/25",
-                  w.is_filler && "bg-warning/20 text-warning line-through decoration-warning/60",
-                  playhead >= w.start && playhead < w.end && "bg-accent/40 text-white",
+                  w.is_filler && "bg-warning/20 text-warning",
+                  removed && "text-fg-subtle line-through decoration-danger/70 opacity-60",
+                  selected && "bg-accent/50 text-white",
+                  active && "bg-accent/40 text-white",
                 )}
               >
                 {w.text}{" "}
               </span>
-            ))
+              );
+            })
           : segment.text}
       </p>
     </div>

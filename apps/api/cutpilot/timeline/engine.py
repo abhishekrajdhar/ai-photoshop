@@ -95,6 +95,29 @@ def split_clip(clip: Clip, at: float) -> tuple[Clip, Clip] | None:
     return left, right
 
 
+def _relink_pieces(
+    doc: TimelineDocument, pieces: dict[str, tuple[Clip | None, Clip | None]]
+) -> None:
+    """After splitting linked clips, point right-hand pieces at each other and drop dangling links."""
+    existing = {c.id for _, c in doc.all_clips()}
+    for _old_id, (_left, right) in pieces.items():
+        if right is None:
+            continue
+        link = right.linked_clip_id
+        if link in pieces:
+            partner_right = pieces[link][1]
+            right.linked_clip_id = partner_right.id if partner_right else None
+        elif link is not None and link not in existing:
+            right.linked_clip_id = None
+    for _, c in doc.all_clips():
+        if (
+            c.linked_clip_id is not None
+            and c.linked_clip_id not in existing
+            and c.linked_clip_id not in {p[1].id for p in pieces.values() if p[1]}
+        ):
+            c.linked_clip_id = None
+
+
 def remove_timeline_range(
     doc: TimelineDocument,
     start: float,
@@ -108,6 +131,7 @@ def remove_timeline_range(
     if end - start <= EPS:
         return 0.0
     removed = end - start
+    pieces_by_old: dict[str, tuple[Clip | None, Clip | None]] = {}
     for track in doc.tracks:
         if track_ids is not None and track.id not in track_ids:
             continue
@@ -119,24 +143,34 @@ def remove_timeline_range(
                 new_clips.append(clip)
                 continue
             # Overlapping: keep left part, right part
+            old_id = clip.id
+            left_piece: Clip | None = None
+            right_piece: Clip | None = None
             pieces: list[Clip] = []
             if clip.timeline_start < start - EPS:
                 res = split_clip(clip, start)
                 if res:
-                    left, rest = res
-                    pieces.append(left)
+                    left_piece, rest = res
+                    pieces.append(left_piece)
                     clip = rest
             if clip.timeline_end > end + EPS:
                 res = split_clip(clip, end)
                 if res:
-                    _, right = res
-                    pieces.append(right)
+                    _, right_piece = res
+                    pieces.append(right_piece)
+            if right_piece is not None and left_piece is None:
+                # The clip's id is kept by the *left* piece normally; with no left piece, keep the id on the right.
+                right_piece.id = old_id
+                pieces_by_old[old_id] = (None, None)
+            else:
+                pieces_by_old[old_id] = (left_piece, right_piece)
             new_clips.extend(pieces)
         if ripple:
             for clip in new_clips:
                 if clip.timeline_start >= end - EPS:
                     clip.timeline_start = round(clip.timeline_start - removed, 6)
         track.clips = sorted(new_clips, key=lambda c: c.timeline_start)
+    _relink_pieces(doc, pieces_by_old)
     if ripple:
         for m in doc.markers:
             if m.time >= end:
@@ -297,22 +331,30 @@ def _op_delete_clip(doc: TimelineDocument, op: EditOperation) -> None:
         raise OperationError("delete_clip requires source_clip_id")
     track, clip = doc.find_clip(op.source_clip_id)
     ripple = bool(op.params.get("ripple", True))
-    if ripple:
-        remove_timeline_range(
-            doc, clip.timeline_start, clip.timeline_end, ripple=True, track_ids={track.id}
-        )
-        # Ripple only that track; other tracks shift only if the request says so.
-        if op.params.get("ripple_all", False):
-            for t in doc.tracks:
-                if t.id != track.id:
-                    for c in t.clips:
-                        if c.timeline_start >= clip.timeline_end - EPS:
-                            c.timeline_start = round(c.timeline_start - clip.duration, 6)
-    else:
-        track.clips = [c for c in track.clips if c.id != clip.id]
-    # Remove linked clip as well
-    for t in doc.tracks:
-        t.clips = [c for c in t.clips if c.linked_clip_id != clip.id]
+    # Resolve the linked partner up-front (links are cleared once a clip disappears).
+    partner: tuple[Track, Clip] | None = None
+    if clip.linked_clip_id:
+        try:
+            partner = doc.find_clip(clip.linked_clip_id)
+        except KeyError:
+            partner = None
+    targets = [(track, clip)] + ([partner] if partner else [])
+    for t, c in targets:
+        if ripple:
+            remove_timeline_range(
+                doc, c.timeline_start, c.timeline_end, ripple=True, track_ids={t.id}
+            )
+        else:
+            t.clips = [x for x in t.clips if x.id != c.id]
+    if ripple and op.params.get("ripple_all", False):
+        touched = {t.id for t, _ in targets}
+        for t in doc.tracks:
+            if t.id in touched:
+                continue
+            for c in t.clips:
+                if c.timeline_start >= clip.timeline_end - EPS:
+                    c.timeline_start = round(c.timeline_start - clip.duration, 6)
+    doc.sort()
 
 
 def _merge_clips(doc: TimelineDocument, clips: list[Clip]) -> Clip:
