@@ -231,3 +231,28 @@ def test_remove_range_keeps_linked_pieces_paired() -> None:
     v0 = head.primary_video_track().clips[0]
     a0 = head.primary_audio_track().clips[0]
     assert v0.linked_clip_id == a0.id and a0.linked_clip_id == v0.id
+
+
+def test_captions_follow_video_and_never_stack() -> None:
+    doc = make_doc()
+    # A stale/unaligned audio clip must not influence caption placement.
+    stale = doc.primary_audio_track().clips[0].model_copy(deep=True)
+    stale.id = "stale"
+    stale.timeline_start = 0.8
+    stale.linked_clip_id = None
+    doc.primary_audio_track().clips.append(stale)
+    ops = [
+        EditOperation(type="caption", asset_id="asset", start=0, end=2, text="one"),
+        EditOperation(
+            type="caption", asset_id="asset", start=1.5, end=4, text="two"
+        ),  # overlaps → clamped
+        EditOperation(type="caption", asset_id="asset", start=4, end=6, text="three"),
+    ]
+    result = apply_operations(doc, ops)
+    caps = result.document.caption_track().sorted_clips()
+    assert [(c.timeline_start, round(c.timeline_end, 3)) for c in caps] == [
+        (0.0, 2.0),
+        (2.0, 4.0),
+        (4.0, 6.0),
+    ]
+    assert not result.rejected

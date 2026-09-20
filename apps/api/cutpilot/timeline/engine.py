@@ -505,10 +505,21 @@ def _op_zoom(doc: TimelineDocument, op: EditOperation) -> None:
 def _op_caption(doc: TimelineDocument, op: EditOperation) -> None:
     assert op.start is not None and op.end is not None and op.text
     track = doc.caption_track()
-    ranges = _ranges_for_op(doc, op, op.start, op.end)
+    # Captions follow the picture: map through video tracks first, audio only for audio-only sequences.
+    ranges = _caption_ranges(doc, op)
     if not ranges:
         raise OperationError("caption range is not on the timeline")
     s, e = ranges[0][0], ranges[-1][1]
+    # Never stack captions: clamp against neighbours instead of deleting them.
+    for other in track.sorted_clips():
+        if other.timeline_end <= s + EPS or other.timeline_start >= e - EPS:
+            continue
+        if other.timeline_start <= s:
+            s = max(s, other.timeline_end)
+        else:
+            e = min(e, other.timeline_start)
+    if e - s < 0.25:
+        raise OperationError("caption is too short after cuts / overlaps")
     style = dict(op.params.get("style", {}))
     words = op.params.get("words")
     clip = Clip(
@@ -523,14 +534,23 @@ def _op_caption(doc: TimelineDocument, op: EditOperation) -> None:
         style=style,
         meta={"speaker": op.params.get("speaker")},
     )
-    # Replace overlapping caption clips so captions never stack.
-    track.clips = [
-        c
-        for c in track.clips
-        if not (c.timeline_start < clip.timeline_end and c.timeline_end > clip.timeline_start)
-    ]
     track.clips.append(clip)
     doc.sort()
+
+
+def _caption_ranges(doc: TimelineDocument, op: EditOperation) -> list[tuple[float, float]]:
+    assert op.start is not None and op.end is not None
+    if op.time_ref == "timeline":
+        return [(op.start, op.end)]
+    asset_id = op.asset_id
+    if asset_id is None and op.source_clip_id:
+        asset_id = doc.find_clip(op.source_clip_id)[1].asset_id
+    if asset_id is None:
+        return [(op.start, op.end)]
+    ranges = doc.source_to_timeline_ranges(asset_id, op.start, op.end, kinds=("video",))
+    if not ranges:
+        ranges = doc.source_to_timeline_ranges(asset_id, op.start, op.end, kinds=("audio",))
+    return ranges
 
 
 def _overlay_track(doc: TimelineDocument) -> Track:
