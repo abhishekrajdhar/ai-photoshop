@@ -74,4 +74,17 @@ cd apps/web && npm install && npm run dev
 npm run typecheck && npm run lint && npm test
 ```
 
+### Running the stack natively (without Docker)
+
+```bash
+# 1. Postgres + Redis running locally, then in apps/api:
+cp ../../.env.example .env   # set DATABASE_URL / REDIS_URL / LOCAL_STORAGE_ROOT / WORK_DIR to local paths
+.venv/bin/alembic upgrade head
+.venv/bin/uvicorn cutpilot.main:app --port 8000 --reload
+# 2. Worker — on macOS use the threads pool (Celery's default prefork/spawn pool crashes on macOS + Python 3.12):
+.venv/bin/celery -A cutpilot.workers.celery_app:celery_app worker -Q media,ai,render -P threads --concurrency=4
+# 3. Web:
+cd ../web && INTERNAL_API_URL=http://localhost:8000 npm run dev
+```
+
 See `docs/` for architecture, AI pipeline, timeline, rendering and deployment details.

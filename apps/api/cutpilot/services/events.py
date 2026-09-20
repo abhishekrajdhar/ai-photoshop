@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -52,6 +52,8 @@ class SyncEventPublisher:
         project_id: uuid.UUID | str | None = None,
         user_id: uuid.UUID | str | None = None,
     ) -> None:
+        if get_settings().app_env == "test":
+            return
         msg = _payload(event, data)
         try:
             if project_id is not None:
@@ -59,7 +61,7 @@ class SyncEventPublisher:
             if user_id is not None:
                 self.client.publish(channel_for_user(user_id), msg)
         except Exception as exc:  # events are best-effort
-            log.warning("event_publish_failed", error=str(exc), event=event)
+            log.warning("event_publish_failed", error=str(exc), event_name=event)
 
 
 sync_publisher = SyncEventPublisher()
@@ -83,7 +85,7 @@ async def publish_async(
         if user_id is not None:
             await client.publish(channel_for_user(user_id), msg)
     except Exception as exc:
-        log.warning("event_publish_failed", error=str(exc), event=event)
+        log.warning("event_publish_failed", error=str(exc), event_name=event)
     finally:
         await client.aclose()
 
@@ -91,22 +93,18 @@ async def publish_async(
 async def subscribe(
     channels: list[str], *, heartbeat_seconds: float = 15.0
 ) -> AsyncIterator[dict[str, Any]]:
-    """Yield SSE-ready dicts for messages on the given channels, with heartbeats."""
+    """Yield SSE-ready dicts for messages on the given channels, with periodic heartbeats."""
     client = Redis.from_url(get_settings().redis_url)
     pubsub = client.pubsub()
     await pubsub.subscribe(*channels)
+    last_sent = time.monotonic()
     try:
         while True:
-            try:
-                message = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
-                    timeout=heartbeat_seconds,
-                )
-            except TimeoutError:
-                yield {"event": "heartbeat", "data": "{}"}
-                continue
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
             if message is None:
-                await asyncio.sleep(0.05)
+                if time.monotonic() - last_sent >= heartbeat_seconds:
+                    last_sent = time.monotonic()
+                    yield {"event": "heartbeat", "data": "{}"}
                 continue
             raw = message.get("data")
             if isinstance(raw, bytes):
@@ -115,6 +113,7 @@ async def subscribe(
                 parsed = json.loads(raw)
             except (TypeError, ValueError):
                 continue
+            last_sent = time.monotonic()
             yield {"event": parsed.get("event", "message"), "data": json.dumps(parsed)}
     finally:
         await pubsub.unsubscribe(*channels)

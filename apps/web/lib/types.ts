@@ -112,7 +112,7 @@ export interface MediaAsset {
   mime_type: string;
   size_bytes: number;
   content_hash: string | null;
-  status: "pending" | "processing" | "ready" | "failed";
+  status: "pending" | "processing" | "ready" | "failed" | "duplicate";
   error: string | null;
   role: string | null;
   extra: Record<string, unknown>;
