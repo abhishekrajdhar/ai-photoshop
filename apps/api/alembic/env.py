@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
+import sqlalchemy as sa
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from cutpilot.core.config import get_settings
 from cutpilot.db.base import Base
-import cutpilot.db.models  # noqa: F401  (register all tables)
+import cutpilot.db.models
 
 config = context.config
 if config.config_file_name is not None:
@@ -17,6 +18,7 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", get_settings().sync_database_url)
 target_metadata = Base.metadata
+DB_SCHEMA = get_settings().db_schema
 
 
 def run_migrations_offline() -> None:
@@ -39,8 +41,16 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        if DB_SCHEMA:
+            connection.execute(sa.text(f'CREATE SCHEMA IF NOT EXISTS "{DB_SCHEMA}"'))
+            connection.commit()
+            connection = connection.execution_options(schema_translate_map={None: DB_SCHEMA})
         context.configure(
-            connection=connection, target_metadata=target_metadata, render_as_batch=True
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
+            version_table_schema=DB_SCHEMA,
+            include_schemas=bool(DB_SCHEMA),
         )
         with context.begin_transaction():
             context.run_migrations()

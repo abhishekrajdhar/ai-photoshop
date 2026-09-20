@@ -17,6 +17,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from cutpilot.core.config import get_settings
 
 
+def _schema_options() -> dict[str, object]:
+    """Route every table to DB_SCHEMA (when set) without hard-coding schemas on the models."""
+    schema = get_settings().db_schema
+    return {"schema_translate_map": {None: schema}} if schema else {}
+
+
 @lru_cache
 def get_async_engine() -> AsyncEngine:
     settings = get_settings()
@@ -24,6 +30,8 @@ def get_async_engine() -> AsyncEngine:
     kwargs: dict[str, object] = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs = {}
+    if _schema_options():
+        kwargs["execution_options"] = _schema_options()
     return create_async_engine(url, **kwargs)
 
 
@@ -45,6 +53,8 @@ def get_sync_engine():  # type: ignore[no-untyped-def]
     kwargs: dict[str, object] = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs = {}
+    if _schema_options():
+        kwargs["execution_options"] = _schema_options()
     return create_engine(url, **kwargs)
 
 

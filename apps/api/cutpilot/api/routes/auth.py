@@ -6,6 +6,7 @@ import jwt
 from fastapi import APIRouter, Depends, Request, Response
 
 from cutpilot.api.deps import CurrentUser, DBSession, SettingsDep, rate_limit
+from cutpilot.core.config import get_settings
 from cutpilot.core.constants import ACCESS_COOKIE, REFRESH_COOKIE
 from cutpilot.core.errors import UnauthorizedError
 from cutpilot.core.logging import get_logger
@@ -32,7 +33,13 @@ log = get_logger(__name__)
 def _set_auth_cookies(response: Response, user: User, settings) -> AuthResponse:  # type: ignore[no-untyped-def]
     access = create_access_token(user.id)
     refresh = create_refresh_token(user.id)
-    common = {"httponly": True, "samesite": "lax", "secure": settings.cookie_secure, "path": "/"}
+    common = {
+        "httponly": True,
+        "samesite": settings.cookie_samesite,
+        "secure": settings.cookie_secure or settings.cookie_samesite == "none",
+        "path": "/",
+        "domain": settings.cookie_domain,
+    }
     response.set_cookie(
         ACCESS_COOKIE, access, max_age=settings.access_token_ttl_minutes * 60, **common
     )
@@ -47,8 +54,9 @@ def _set_auth_cookies(response: Response, user: User, settings) -> AuthResponse:
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie(ACCESS_COOKIE, path="/")
-    response.delete_cookie(REFRESH_COOKIE, path="/")
+    domain = get_settings().cookie_domain
+    response.delete_cookie(ACCESS_COOKIE, path="/", domain=domain)
+    response.delete_cookie(REFRESH_COOKIE, path="/", domain=domain)
 
 
 @router.post("/register", response_model=AuthResponse, status_code=201)

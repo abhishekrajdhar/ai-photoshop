@@ -29,6 +29,39 @@ object storage. With `STORAGE_PROVIDER=local` all API/worker replicas must mount
 `infrastructure/deploy/docker-compose.prod.yml` shows a single-host production layout (built images,
 no bind mounts, restart policies, MinIO). `infrastructure/deploy/render.yaml` is a Render blueprint.
 
+## Vercel (frontend) + hosted backend
+
+Vercel can host `apps/web`, not the API/workers (they need long-running processes, FFmpeg, Redis and a
+persistent filesystem). Recommended split: **Vercel → web**, **Render/Fly/Railway/Cloud Run/VPS → api +
+workers**, **Neon/Supabase → Postgres**, **Upstash → Redis**, **R2/S3 → storage**.
+
+1. Deploy the backend first (e.g. `infrastructure/deploy/render.yaml`, or `docker-compose.prod.yml` on a VPS).
+   Give it a domain such as `api.example.com` with HTTPS.
+2. Create the Vercel project with **Root Directory = `apps/web`** (framework auto-detected: Next.js).
+3. Choose one of two wiring modes:
+
+   **A. Direct (recommended, streams and large uploads go straight to the API)** — put the app on a
+   sibling subdomain (`app.example.com`) so cookies are same-site:
+   - Vercel env: `NEXT_PUBLIC_API_BASE=https://api.example.com/api`, `NEXT_PUBLIC_APP_NAME=CutPilot AI`
+   - API env: `APP_URL=https://app.example.com`, `COOKIE_SECURE=true`, `COOKIE_DOMAIN=.example.com`,
+     `CORS_ORIGINS=https://<project>.vercel.app` (add preview URLs as needed)
+
+   **B. Proxied (no custom domain)** — keep `NEXT_PUBLIC_API_BASE=/api` and set
+   `INTERNAL_API_URL=https://api.example.com` on Vercel; Next.js rewrites forward `/api/*`. This keeps
+   cookies first-party on `*.vercel.app`, but SSE and multi-MB chunk uploads pass through Vercel's proxy —
+   set `UPLOAD_CHUNK_SIZE=4194304` (4 MiB) on the API and expect job-progress events to arrive with some
+   buffering. Use mode A for production.
+
+   If the app and API must live on unrelated sites, set `COOKIE_SAMESITE=none` (implies Secure) on the API.
+4. Redeploy the web project; `GET https://api.example.com/api/ready` should report `ready`, and the
+   AI panel's status banner disappears once a provider key is configured on the API.
+
+## Sharing a database (Supabase / existing PostgreSQL)
+
+Set `DB_SCHEMA=cutpilot` (any name) to keep every CutPilot table — and Alembic's version table — inside its
+own PostgreSQL schema. Migrations create the schema automatically; the ORM routes all queries through a
+schema translate map, so nothing in `public` is touched. Leave it empty for a dedicated database.
+
 ## Environment variables
 
 See `.env.example` — every variable is documented there. Required in production: `DATABASE_URL`,

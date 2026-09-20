@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
   compress: false,
   // Proxy all /api/* calls to the backend so cookies stay same-origin (no CORS, CSRF via header).
   async rewrites() {
+    // Direct mode (NEXT_PUBLIC_API_BASE set to an absolute URL, e.g. https://api.example.com/api) needs no proxy.
+    if ((process.env.NEXT_PUBLIC_API_BASE ?? "/api").startsWith("http")) return [];
     return [{ source: "/api/:path*", destination: `${internalApi}/api/:path*` }];
   },
   experimental: {

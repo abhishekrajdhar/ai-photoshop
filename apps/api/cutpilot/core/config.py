@@ -18,17 +18,22 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production", "test"] = "development"
     app_url: str = "http://localhost:3000"
     api_url: str = "http://localhost:8000"
+    cors_origins: str = ""  # comma-separated extra origins (e.g. Vercel preview URLs)
     log_level: str = "INFO"
 
     # Database / cache
     database_url: str = "postgresql+psycopg://cutpilot:cutpilot@localhost:5432/cutpilot"
     redis_url: str = "redis://localhost:6379/0"
+    # Optional PostgreSQL schema to isolate CutPilot tables in a shared database (e.g. Supabase).
+    db_schema: str | None = None
 
     # Auth
     jwt_secret: str = Field(default="dev-only-secret-change-me", min_length=16)
     access_token_ttl_minutes: int = 30
     refresh_token_ttl_days: int = 30
     cookie_secure: bool = False
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    cookie_domain: str | None = None
 
     # AI providers
     ai_provider: AIProviderName = "openai"
@@ -76,6 +81,15 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_per_minute: int = 120
     ai_rate_limit_per_minute: int = 20
+
+    @field_validator("db_schema", mode="before")
+    @classmethod
+    def _schema_empty_to_none(cls, value: object) -> object:
+        if value in ("", None):
+            return None
+        if isinstance(value, str) and not value.replace("_", "").isalnum():
+            raise ValueError("DB_SCHEMA must be alphanumeric/underscore")
+        return value
 
     @field_validator("ai_fallback_provider", mode="before")
     @classmethod
