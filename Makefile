@@ -29,3 +29,11 @@ web-typecheck:
 
 web-test:
 	cd apps/web && npm test
+
+test: api-test web-test  ## Run all tests
+
+docker-build:
+	docker compose build
+
+docker-test:   ## Smoke-test the running stack
+	curl -fsS localhost:8000/api/ready && echo && curl -fsS -o /dev/null -w "web %{http_code}\n" localhost:3000/login

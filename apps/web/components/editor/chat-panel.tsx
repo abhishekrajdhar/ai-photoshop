@@ -10,6 +10,7 @@ import { useAIStatus, useTranscript } from "@/lib/analysis";
 import { ApiError } from "@/lib/api";
 import { useAssets } from "@/lib/assets";
 import { useChatMutations, useChatSessions } from "@/lib/chat";
+import { useAIUsage } from "@/lib/creator";
 import type { ChatMessage, ChatSession, EditOperation } from "@/lib/types";
 import { cn, formatDuration, formatTime, relativeTime } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor";
@@ -37,6 +38,7 @@ export function ChatPanel({ projectId }: { projectId: string }) {
   const { data: ai } = useAIStatus(projectId);
   const { data: transcript } = useTranscript(projectId);
   const { data: assets } = useAssets(projectId);
+  const { data: usage } = useAIUsage(projectId);
   const m = useChatMutations(projectId);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -115,7 +117,10 @@ export function ChatPanel({ projectId }: { projectId: string }) {
           />
           <Button type="submit" size="icon" disabled={!text.trim() || pending || !hasFootage} loading={m.send.isPending}><Send /></Button>
         </div>
-        <div className="mt-1 text-[10.5px] text-fg-subtle">Enter to send · Shift+Enter for a new line · proposals are never applied without your approval</div>
+        <div className="mt-1 flex justify-between text-[10.5px] text-fg-subtle">
+          <span>Enter to send · Shift+Enter for a new line · proposals need your approval</span>
+          {usage && usage.total_requests > 0 && <span title={`${usage.total_requests} AI requests`}>~${usage.total_cost_usd.toFixed(3)} AI spend</span>}
+        </div>
       </form>
     </div>
   );

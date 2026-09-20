@@ -58,6 +58,9 @@ async def start_render(
     version = await ts.current_version(db, timeline)
     if version.duration <= 0:
         raise ValidationFailed("The timeline is empty — add clips before rendering")
+    doc = ts.load_document(version)
+    if not any(c.asset_id for t in doc.tracks if t.kind in ("video", "audio") for c in t.clips):
+        raise ValidationFailed("The timeline has no video or audio clips to render")
     if preset not in PRESETS:
         raise ValidationFailed(f"Unknown preset {preset}")
     resolved = resolve_preset("preview" if kind == "preview" else preset, settings)

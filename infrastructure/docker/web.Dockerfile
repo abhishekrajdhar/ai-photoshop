@@ -14,7 +14,8 @@ CMD ["npm", "run", "dev"]
 
 FROM node:22-alpine AS builder
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_OUTPUT=standalone
+ENV NEXT_TELEMETRY_DISABLED=1 NEXT_OUTPUT=$NEXT_OUTPUT
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/web .
 RUN npm run build

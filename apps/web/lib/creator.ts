@@ -46,3 +46,12 @@ export function useCreatorMutations(projectId: string) {
   });
   return { detectHighlights, generateShorts, generateThumbnails, trackReframe, resolveBroll, updateSequence, multicamSync };
 }
+
+export function useAIUsage(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["ai-usage", projectId],
+    queryFn: () => apiGet<{ total_cost_usd: number; total_requests: number; items: { provider: string; model: string; operation: string; requests: number; estimated_cost_usd: number }[] }>(`/projects/${projectId}/ai-usage`),
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
+}

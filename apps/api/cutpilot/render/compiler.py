@@ -16,6 +16,7 @@ import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cutpilot.core.errors import MediaProcessingError
 from cutpilot.render.captions import (
     Cue,
     blank_image,
@@ -59,8 +60,8 @@ class RenderPlan:
         return "ffmpeg " + " ".join(shlex.quote(a) for a in self.args)
 
 
-class CompileError(ValueError):
-    pass
+class CompileError(MediaProcessingError):
+    """Non-retryable: the document itself cannot be rendered."""
 
 
 def _f(v: float) -> str:

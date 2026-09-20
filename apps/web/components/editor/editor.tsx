@@ -13,11 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/misc";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectEvents } from "@/lib/events";
+import { useRequireAuth } from "@/lib/auth";
 import { useProject } from "@/lib/projects";
 import { useTimeline } from "@/lib/timeline";
 import { useEditorStore, type LeftTab, type RightTab } from "@/stores/editor";
 
 export function Editor({ projectId }: { projectId: string }) {
+  useRequireAuth();
   const { data: project, isLoading } = useProject(projectId);
   const { leftTab, rightTab, set } = useEditorStore();
   useProjectEvents(projectId);

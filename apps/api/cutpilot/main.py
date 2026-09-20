@@ -64,10 +64,6 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     app.include_router(api_router)
 
-    @app.get("/api/health", tags=["system"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "product": PRODUCT_NAME, "version": API_VERSION}
-
     return app
 
 

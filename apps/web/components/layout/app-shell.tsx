@@ -5,12 +5,12 @@ import { LayoutGrid, LogOut, Settings, User as UserIcon } from "lucide-react";
 import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useLogout, useUser } from "@/lib/auth";
+import { useLogout, useRequireAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { data: user } = useUser();
+  const { user } = useRequireAuth();
   const logout = useLogout();
   const nav = [
     { href: "/dashboard", label: "Projects", icon: LayoutGrid },

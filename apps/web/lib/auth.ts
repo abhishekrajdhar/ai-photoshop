@@ -1,4 +1,5 @@
 "use client";
+import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { api, apiGet, apiPost, ApiError } from "@/lib/api";
@@ -17,6 +18,21 @@ export function useUser() {
     },
     staleTime: 60_000,
   });
+}
+
+/** Redirects to /login (clearing stale cookies) when the session is invalid. Use in protected layouts. */
+export function useRequireAuth() {
+  const { data: user, isLoading } = useUser();
+  const logout = useLogout();
+  const router = useRouter();
+  const redirected = React.useRef(false);
+  React.useEffect(() => {
+    if (!isLoading && user === null && !redirected.current) {
+      redirected.current = true;
+      logout.mutate(undefined, { onSettled: () => router.replace("/login") });
+    }
+  }, [user, isLoading, logout, router]);
+  return { user, isLoading };
 }
 
 export function useLogin() {

@@ -89,4 +89,43 @@ cp ../../.env.example .env   # set DATABASE_URL / REDIS_URL / LOCAL_STORAGE_ROOT
 cd ../web && INTERNAL_API_URL=http://localhost:8000 npm run dev
 ```
 
-See `docs/` for architecture, AI pipeline, timeline, rendering and deployment details.
+## Demo workflow
+
+1. Sign up, create a project, drop a talking-head video into the Media panel (chunked, resumable upload).
+2. Watch the proxy/thumbnail/audio jobs complete live; the clip lands on the timeline.
+3. Transcript tab → **Analyze** (transcription, silence, filler words, scenes, content and vision analysis).
+4. AI tab → "Turn this into a fast-paced 6-minute YouTube video. Remove pauses, filler words and repeated
+   points. Add captions and subtle zooms." → **Preview** (read-only, hatched cuts) → **Apply**.
+5. Adjust anything on the timeline (trim handles, `S` to split, `⌫` ripple delete, drag to move, `⌘Z`).
+6. AI tab → "Create three 45-second Shorts from the strongest sections." → Apply → pick a Short in the
+   timeline switcher (9:16, subject tracking, captions, jump cuts).
+7. Export tab → preset → **Render** → play in the preview or download the MP4 (plus SRT/VTT/OTIO/EDL/FCPXML).
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — services, data flow, storage, security, database
+- [docs/AI_PIPELINE.md](docs/AI_PIPELINE.md) — providers, analysis, planner, chat tools, cost control
+- [docs/TIMELINE.md](docs/TIMELINE.md) — document model, operations, engine, versioning, editor
+- [docs/RENDERING.md](docs/RENDERING.md) — FFmpeg compiler, captions, presets, exports
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — local, production topology, environment, operations
+- [docs/API.md](docs/API.md) — endpoint reference (OpenAPI at `/api/docs`)
+
+## Testing
+
+```bash
+make api-test     # pytest: timeline engine, uploads, analysis, planner/chat, rendering (incl. the spec render case), creator features
+make web-test     # vitest: client timeline engine
+make api-lint web-lint web-typecheck
+```
+
+## Known limitations
+
+- Highlights, content/vision analysis and the AI editor need an OpenAI or Anthropic key; transcription
+  needs `OPENAI_API_KEY` or a local Whisper provider (`.[local-transcription]`).
+- Password-reset emails are not sent (no mail provider); the link is logged (and returned in development).
+- Crossfades need media handles on both clips; otherwise they render as cuts (with a warning).
+- Face tracking uses YuNet on sampled frames (2 fps) — fast, but not a full object tracker; SAM 2 / object
+  tracking can slot in behind `media/reframe.py`.
+- Stock-footage B-roll providers are not included; the `BrollProvider` interface is ready for them.
+- Speaker-based multicam switching is not implemented (waveform sync and angle placement are).
+- Celery's prefork pool crashes on macOS + Python 3.12; use `-P threads` natively (Docker is unaffected).

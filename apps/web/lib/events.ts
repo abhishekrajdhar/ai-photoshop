@@ -80,6 +80,7 @@ export function useProjectEvents(projectId: string | undefined, handlers: Partia
         }
         if (event === "chat.message") {
           qc.invalidateQueries({ queryKey: ["chat", projectId] });
+          qc.invalidateQueries({ queryKey: ["ai-usage", projectId] });
         }
         if (event === "job.failed") {
           toast.error(`${String(data.type ?? "Job").replace(/_/g, " ").toLowerCase()} failed`, { description: String(data.error ?? "") });

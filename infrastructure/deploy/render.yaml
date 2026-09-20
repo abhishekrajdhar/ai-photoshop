@@ -1,0 +1,51 @@
+# Render.com blueprint (https://render.com/docs/blueprint-spec). Frontend can also live on Vercel.
+services:
+  - type: web
+    name: cutpilot-api
+    runtime: docker
+    dockerfilePath: infrastructure/docker/api.Dockerfile
+    dockerCommand: /app/scripts/start-api.sh
+    healthCheckPath: /api/health
+    envVars:
+      - { key: APP_ENV, value: production }
+      - { key: COOKIE_SECURE, value: "true" }
+      - { key: DATABASE_URL, fromDatabase: { name: cutpilot-db, property: connectionString } }
+      - { key: REDIS_URL, fromService: { type: redis, name: cutpilot-redis, property: connectionString } }
+      - { key: JWT_SECRET, generateValue: true }
+      - { key: STORAGE_PROVIDER, value: s3 }
+      - { key: S3_ENDPOINT, sync: false }
+      - { key: S3_BUCKET, sync: false }
+      - { key: S3_ACCESS_KEY, sync: false }
+      - { key: S3_SECRET_KEY, sync: false }
+      - { key: OPENAI_API_KEY, sync: false }
+      - { key: ANTHROPIC_API_KEY, sync: false }
+      - { key: APP_URL, sync: false }
+  - type: worker
+    name: cutpilot-worker-media
+    runtime: docker
+    dockerfilePath: infrastructure/docker/api.Dockerfile
+    dockerCommand: /app/scripts/start-worker.sh media,render 2
+    envVars:
+      - { key: APP_ENV, value: production }
+      - { key: DATABASE_URL, fromDatabase: { name: cutpilot-db, property: connectionString } }
+      - { key: REDIS_URL, fromService: { type: redis, name: cutpilot-redis, property: connectionString } }
+      - { key: STORAGE_PROVIDER, value: s3 }
+  - type: worker
+    name: cutpilot-worker-ai
+    runtime: docker
+    dockerfilePath: infrastructure/docker/api.Dockerfile
+    dockerCommand: /app/scripts/start-worker.sh ai 2
+    envVars:
+      - { key: APP_ENV, value: production }
+      - { key: DATABASE_URL, fromDatabase: { name: cutpilot-db, property: connectionString } }
+      - { key: REDIS_URL, fromService: { type: redis, name: cutpilot-redis, property: connectionString } }
+      - { key: STORAGE_PROVIDER, value: s3 }
+      - { key: OPENAI_API_KEY, sync: false }
+      - { key: ANTHROPIC_API_KEY, sync: false }
+  - type: redis
+    name: cutpilot-redis
+    plan: starter
+    ipAllowList: []
+databases:
+  - name: cutpilot-db
+    plan: starter
