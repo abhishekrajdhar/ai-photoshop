@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Flag, Magnet, Minus, Plus, Redo2, Scissors, Trash2, Undo2 } from "lucide-react";
+import { Clapperboard, Flag, Magnet, Minus, Plus, Redo2, Scissors, Trash2, Undo2 } from "lucide-react";
+import { toast } from "sonner";
+import { useCreatorMutations } from "@/lib/creator";
+import { useTimelines } from "@/lib/timeline";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/misc";
 import { Slider } from "@/components/ui/slider";
@@ -21,6 +24,10 @@ const MAX_ZOOM = 400;
 export function Timeline({ projectId }: { projectId: string }) {
   const actions = useTimelineActions(projectId);
   const { doc: serverDoc, state, assetById } = actions;
+  const { data: timelines } = useTimelines(projectId);
+  const creator = useCreatorMutations(projectId);
+  const timelineId = useEditorStore((s) => s.timelineId);
+  const brollMarkers = useMemo(() => serverDoc?.markers.filter((m) => m.kind === "broll_suggestion").length ?? 0, [serverDoc]);
   const { playhead, zoom, snapping, selectedClipIds, set, selectClip, setPlayhead, previewDoc, cutOverlay } = useEditorStore();
   const [workingDoc, setWorkingDoc] = useState<TimelineDocument | null>(null);
   const doc = previewDoc ?? workingDoc ?? serverDoc;
@@ -267,7 +274,16 @@ export function Timeline({ projectId }: { projectId: string }) {
       )}
       {/* toolbar */}
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
-        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Timeline · {doc.name}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Timeline</span>
+        <select
+          className="mr-2 h-6 max-w-[180px] rounded-sm border border-border bg-panel-2 px-1 text-[11.5px]"
+          value={timelineId ?? ""}
+          onChange={(e) => set({ timelineId: e.target.value || null, selectedClipIds: [], previewDoc: null, previewMessageId: null, cutOverlay: null, playhead: 0, previewSource: { kind: "timeline" } })}
+        >
+          {(timelines ?? []).map((t) => (
+            <option key={t.id} value={t.is_primary ? "" : t.id}>{t.is_primary ? `${t.name} (main)` : `${t.kind === "short" ? "Short · " : ""}${t.name}`}</option>
+          ))}
+        </select>
         <Tip label={<>Undo <Kbd>⌘Z</Kbd></>}><Button variant="ghost" size="icon-sm" disabled={!state?.can_undo} onClick={() => actions.undo()}><Undo2 /></Button></Tip>
         <Tip label={<>Redo <Kbd>⌘⇧Z</Kbd></>}><Button variant="ghost" size="icon-sm" disabled={!state?.can_redo} onClick={() => actions.redo()}><Redo2 /></Button></Tip>
         <div className="mx-1 h-4 w-px bg-border" />
@@ -275,6 +291,13 @@ export function Timeline({ projectId }: { projectId: string }) {
         <Tip label={<>Ripple delete <Kbd>⌫</Kbd></>}><Button variant="ghost" size="icon-sm" disabled={!selectedClips.length} onClick={() => actions.deleteClips(selectedClips, true)}><Trash2 /></Button></Tip>
         <Tip label={<>Add marker <Kbd>M</Kbd></>}><Button variant="ghost" size="icon-sm" onClick={() => actions.addMarker(playhead)}><Flag /></Button></Tip>
         <Tip label="Snapping"><Button variant="ghost" size="icon-sm" className={cn(snapping && "text-accent")} onClick={() => set({ snapping: !snapping })}><Magnet /></Button></Tip>
+        {brollMarkers > 0 && (
+          <Tip label="Match B-roll suggestions against your media library">
+            <Button variant="ghost" size="sm" className="text-track-broll" loading={creator.resolveBroll.isPending} onClick={() => creator.resolveBroll.mutate(timelineId, { onSuccess: (r) => toast[r.placed.length ? "success" : "info"](`${r.placed.length} B-roll placed, ${r.unresolved.length} need media`), onError: () => toast.error("B-roll matching failed") })}>
+              <Clapperboard /> {brollMarkers} B-roll
+            </Button>
+          </Tip>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <span className="text-mono text-[11px] text-fg-muted">{formatTime(playhead, { frames: true, fps })} / {formatTime(duration, { frames: true, fps })}</span>
           <span className="text-[10.5px] text-fg-subtle">{clipCount} clips · v{state?.version.version}</span>

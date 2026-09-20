@@ -74,6 +74,7 @@ export function useProjectEvents(projectId: string | undefined, handlers: Partia
         if (event.endsWith(".completed") || event === "analysis.updated") {
           qc.invalidateQueries({ queryKey: ["analysis", projectId] });
           qc.invalidateQueries({ queryKey: ["highlights", projectId] });
+          qc.invalidateQueries({ queryKey: ["thumbnails", projectId] });
           qc.invalidateQueries({ queryKey: ["renders", projectId] });
           qc.invalidateQueries({ queryKey: ["exports", projectId] });
         }

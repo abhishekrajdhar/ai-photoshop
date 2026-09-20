@@ -146,6 +146,10 @@ def _render_document(
     kind: str,
     work: Path,
 ) -> tuple[MediaAsset, str, float]:
+    from cutpilot.render.reframe_keys import ensure_reframe_keyframes
+
+    ctx.progress(0.03, "Preparing")
+    doc = ensure_reframe_keyframes(session, doc)
     with _Sources(session, project.id, doc) as src:
         missing = doc.asset_ids() - set(src.sources)
         if missing:

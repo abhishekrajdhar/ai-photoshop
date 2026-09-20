@@ -17,6 +17,7 @@ import { cn, formatDuration, formatTime } from "@/lib/utils";
 import { useTimelineActions } from "@/components/timeline/use-timeline-actions";
 import { isSourceTimePresent, presentSourceRanges, sourceTimeToTimeline } from "@/lib/timeline-engine";
 import { Scissors } from "lucide-react";
+import { HighlightsSection, ShortsList, ThumbnailsSection } from "@/components/editor/creator-panel";
 import { useEditorStore } from "@/stores/editor";
 import { JOB_LABEL } from "@/stores/jobs";
 
@@ -295,7 +296,15 @@ function InsightsView({ projectId }: { projectId: string }) {
   const audio = byKind.audio_stats as { integrated_lufs?: number; needs_normalization?: boolean; max_volume_db?: number } | undefined;
   const vision = byKind.vision as { frames: { t: number; issues: string[] }[]; editing_opportunities: { t: number; suggestion: string; confidence: number }[] } | undefined;
   if (isLoading) return <div className="space-y-2 p-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
-  if (!results?.length) return <EmptyState icon={<BookOpen />} title="No insights yet" description="Run Analyze to detect silence, filler words, scenes, chapters and visual notes." />;
+  if (!results?.length)
+    return (
+      <div className="space-y-3 p-3 text-[12px]">
+        <EmptyState icon={<BookOpen />} title="No insights yet" description="Run Analyze to detect silence, filler words, scenes, chapters and visual notes." className="p-4" />
+        <HighlightsSection projectId={projectId} />
+        <ShortsList projectId={projectId} />
+        <ThumbnailsSection projectId={projectId} />
+      </div>
+    );
   const issues = (vision?.frames ?? []).flatMap((f) => f.issues.map((i) => ({ t: f.t, issue: i })));
   return (
     <div className="space-y-3 p-3 text-[12px]">
@@ -304,6 +313,9 @@ function InsightsView({ projectId }: { projectId: string }) {
         <Stat label="Fillers" value={filler ? `${filler.count}` : "–"} hint={filler ? `${formatDuration(filler.removable_seconds)} removable` : undefined} />
         <Stat label="Loudness" value={audio?.integrated_lufs != null ? `${audio.integrated_lufs.toFixed(1)} LUFS` : "–"} hint={audio?.needs_normalization ? "normalize recommended" : undefined} />
       </div>
+      <HighlightsSection projectId={projectId} />
+      <ShortsList projectId={projectId} />
+      <ThumbnailsSection projectId={projectId} />
       {content?.summary && (
         <section>
           <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Summary</h4>

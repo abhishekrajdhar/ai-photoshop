@@ -19,6 +19,9 @@ import { cn, formatBytes, formatDuration, formatTime, relativeTime } from "@/lib
 import { useEditorStore, type RightTab } from "@/stores/editor";
 import { ChatPanel } from "@/components/editor/chat-panel";
 import { ExportPanel } from "@/components/editor/export-panel";
+import { useCreatorMutations } from "@/lib/creator";
+import { useTimeline } from "@/lib/timeline";
+import { toast } from "sonner";
 
 export function RightPanel({ projectId, tab }: { projectId: string; tab: RightTab }) {
   if (tab === "inspector") return <Inspector projectId={projectId} />;
@@ -38,7 +41,7 @@ function Inspector({ projectId }: { projectId: string }) {
   const found = clipId && actions.doc ? findClip(actions.doc, clipId) : undefined;
   if (found) return <ClipInspector clip={found.clip} trackKind={found.track.kind} actions={actions} />;
   const asset = assets?.find((a) => a.id === selectedAssetId);
-  if (!asset) return <EmptyState icon={<SlidersHorizontal />} title="Inspector" description="Select a timeline clip or a media asset to see its properties." />;
+  if (!asset) return <SequenceInspector projectId={projectId} />;
   const m = asset.metadata;
   const rows: [string, string][] = [
     ["File", asset.filename], ["Type", `${asset.media_type} · ${asset.mime_type}`], ["Size", formatBytes(asset.size_bytes)], ["Status", asset.status],
@@ -133,6 +136,60 @@ function ClipInspector({ clip, trackKind, actions }: { clip: Clip; trackKind: st
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SequenceInspector({ projectId }: { projectId: string }) {
+  const timelineId = useEditorStore((s) => s.timelineId);
+  const { data: state } = useTimeline(projectId, timelineId);
+  const m = useCreatorMutations(projectId);
+  const doc = state?.document;
+  if (!doc) return <EmptyState icon={<SlidersHorizontal />} title="Inspector" description="Select a timeline clip or a media asset to see its properties." />;
+  const update = (body: Parameters<typeof m.updateSequence.mutate>[0], label: string) => m.updateSequence.mutate({ ...body, timeline_id: timelineId }, { onSuccess: () => toast.success(label), onError: () => toast.error("Update failed") });
+  const audio = doc.settings.audio as Record<string, boolean | { enabled?: boolean }>;
+  const on = (k: string) => { const v = audio?.[k]; return typeof v === "object" ? !!v?.enabled : !!v; };
+  return (
+    <div className="space-y-3 p-3 text-[12px]">
+      <div className="text-[11px] uppercase tracking-wider text-fg-subtle">Sequence · {doc.name}</div>
+      <Field label="Format"><span className="text-mono">{doc.settings.width}×{doc.settings.height} · {doc.settings.fps} fps</span></Field>
+      <Field label="Aspect">
+        <Select value={doc.settings.aspect_ratio} onValueChange={(v) => update({ aspect_ratio: v, reframe_mode: doc.settings.reframe?.mode === "center" ? "center" : "track" }, `Sequence set to ${v}`)}>
+          <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+          <SelectContent>{["16:9", "9:16", "1:1", "4:5", "4:3"].map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
+      <Field label="Reframe">
+        <Select value={doc.settings.reframe ? doc.settings.reframe.mode : "off"} onValueChange={(v) => update({ reframe_mode: v as "off" | "center" | "track" }, "Reframe updated")}>
+          <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="off">Off (letterbox)</SelectItem><SelectItem value="center">Center crop</SelectItem><SelectItem value="track">Track subject</SelectItem></SelectContent>
+        </Select>
+      </Field>
+      <Separator />
+      <div className="text-[11px] uppercase tracking-wider text-fg-subtle">Captions</div>
+      <Field label="Style preset">
+        <Select value={doc.settings.caption_style.preset} onValueChange={(v) => update({ caption_style: { preset: v } }, `Caption style: ${v}`)}>
+          <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+          <SelectContent>{["clean", "bold", "karaoke", "minimal", "boxed"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
+      <Field label="Position">
+        <Select value={doc.settings.caption_style.position} onValueChange={(v) => update({ caption_style: { position: v } }, "Caption position updated")}>
+          <SelectTrigger className="h-7"><SelectValue /></SelectTrigger>
+          <SelectContent>{["bottom", "center", "top"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
+      <Field label="Size"><Input type="number" className="h-7" defaultValue={doc.settings.caption_style.font_size} onBlur={(e) => Number(e.target.value) !== doc.settings.caption_style.font_size && update({ caption_style: { font_size: Number(e.target.value) } }, "Caption size updated")} /></Field>
+      <Field label="Uppercase"><Switch checked={doc.settings.caption_style.uppercase} onCheckedChange={(v) => update({ caption_style: { uppercase: v } }, "Captions updated")} /></Field>
+      <Separator />
+      <div className="text-[11px] uppercase tracking-wider text-fg-subtle">Audio cleanup (applied at render)</div>
+      <Field label="Normalize"><Switch checked={on("normalize_audio")} onCheckedChange={(v) => update({ audio: { normalize_audio: v } }, v ? "Loudness normalization on" : "Normalization off")} /></Field>
+      <Field label="Denoise"><Switch checked={on("noise_reduction")} onCheckedChange={(v) => update({ audio: { noise_reduction: v } }, v ? "Noise reduction on" : "Noise reduction off")} /></Field>
+      <Field label="Voice enhance"><Switch checked={on("voice_enhancement")} onCheckedChange={(v) => update({ audio: { voice_enhancement: v } }, v ? "Voice enhancement on" : "Voice enhancement off")} /></Field>
+      <Separator />
+      <div className="text-[11px] uppercase tracking-wider text-fg-subtle">Subject tracking</div>
+      <Button size="xs" variant="secondary" loading={m.trackReframe.isPending} onClick={() => m.trackReframe.mutate(undefined, { onSuccess: () => toast.success("Tracking subject…"), onError: () => toast.error("Tracking failed") })}>Track faces for auto-reframe</Button>
+      <p className="text-[11px] text-fg-subtle">Tracking runs automatically at render time when reframe is set to “Track subject”.</p>
     </div>
   );
 }

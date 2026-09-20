@@ -60,7 +60,7 @@ build-backend = "setuptools.build_meta"
 include = ["cutpilot*"]
 
 [tool.setuptools.package-data]
-cutpilot = ["ai/prompts/*.md", "py.typed"]
+cutpilot = ["ai/prompts/*.md", "media/models/*.onnx", "media/models/LICENSE.txt", "py.typed"]
 
 [tool.ruff]
 line-length = 100

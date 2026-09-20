@@ -7,6 +7,7 @@ from cutpilot.api.routes import (
     assets,
     auth,
     chat,
+    creator,
     events,
     jobs,
     projects,
@@ -22,5 +23,6 @@ api_router.include_router(assets.router)
 api_router.include_router(analysis.router)
 api_router.include_router(chat.router)
 api_router.include_router(render.router)
+api_router.include_router(creator.router)
 api_router.include_router(jobs.router)
 api_router.include_router(events.router)
