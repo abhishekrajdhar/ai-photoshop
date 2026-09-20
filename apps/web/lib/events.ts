@@ -77,6 +77,9 @@ export function useProjectEvents(projectId: string | undefined, handlers: Partia
           qc.invalidateQueries({ queryKey: ["renders", projectId] });
           qc.invalidateQueries({ queryKey: ["exports", projectId] });
         }
+        if (event === "chat.message") {
+          qc.invalidateQueries({ queryKey: ["chat", projectId] });
+        }
         if (event === "job.failed") {
           toast.error(`${String(data.type ?? "Job").replace(/_/g, " ").toLowerCase()} failed`, { description: String(data.error ?? "") });
         }

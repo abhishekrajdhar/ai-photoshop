@@ -390,13 +390,20 @@ export interface Highlight {
 /* ── Chat ────────────────────────────────────────────────────────────────── */
 
 export interface ChatProposal {
-  status: "proposed" | "applied" | "rejected" | "previewing";
+  status: "pending" | "proposed" | "none" | "applied" | "rejected" | "failed";
   summary: string;
   operations: EditOperation[];
   estimated_duration_delta: number | null;
+  duration_after?: number;
   warnings: string[];
-  applied_version_id?: string;
-  timelines_created?: { id: string; name: string }[];
+  rejected?: { operation: EditOperation; reason: string }[];
+  side_effects?: { kind: string; count?: number; duration?: number; preset?: string; platform?: string | null }[];
+  timeline_id?: string;
+  base_version_id?: string;
+  applied_version_id?: string | null;
+  jobs?: { kind: string; job_id?: string; render_id?: string }[];
+  provider?: string;
+  model?: string;
 }
 
 export interface ChatMessage {

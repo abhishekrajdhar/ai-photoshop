@@ -242,6 +242,8 @@ def _op_remove(doc: TimelineDocument, op: EditOperation) -> None:
         if e <= s:
             continue
         ranges.extend(_ranges_for_op(doc, op, s, e))
+    if not ranges:
+        raise OperationError("range is not on the timeline")
     # Remove from the end so earlier ranges are unaffected by ripple.
     for s, e in reversed(merge_ranges(ranges)):
         remove_timeline_range(doc, s, e, ripple=True)

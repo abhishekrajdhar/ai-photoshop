@@ -27,8 +27,12 @@ interface EditorState {
   scrollX: number;
   snapping: boolean;
   drag: DragState | null;
-  /** A transient client-side document while dragging (null = use server document). */
   hoverTime: number | null;
+  /** Proposal preview: a document rendered instead of the server one until exited. */
+  previewDoc: import("@/lib/types").TimelineDocument | null;
+  previewMessageId: string | null;
+  /** Highlighted source ranges (of the primary asset) that a proposal would remove. */
+  cutOverlay: { assetId: string | null; ranges: { start: number; end: number }[] } | null;
   set: (patch: Partial<EditorState>) => void;
   selectClip: (id: string | null, additive?: boolean) => void;
   setPlayhead: (t: number) => void;
@@ -54,6 +58,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   snapping: true,
   drag: null,
   hoverTime: null,
+  previewDoc: null,
+  previewMessageId: null,
+  cutOverlay: null,
   set: (patch) => set(patch),
   selectClip: (id, additive) =>
     set((s) => {

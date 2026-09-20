@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Download, GitCompare, History, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Download, GitCompare, History, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,12 +17,13 @@ import { findClip } from "@/lib/timeline-engine";
 import type { Clip, TimelineVersion } from "@/lib/types";
 import { cn, formatBytes, formatDuration, formatTime, relativeTime } from "@/lib/utils";
 import { useEditorStore, type RightTab } from "@/stores/editor";
+import { ChatPanel } from "@/components/editor/chat-panel";
 
 export function RightPanel({ projectId, tab }: { projectId: string; tab: RightTab }) {
   if (tab === "inspector") return <Inspector projectId={projectId} />;
   if (tab === "versions") return <VersionsPanel projectId={projectId} />;
   if (tab === "export") return <EmptyState icon={<Download />} title="Export" description="Render presets are available once the timeline has clips." />;
-  return <EmptyState icon={<Bot />} title="AI editor" description="Ask for edits in plain language once your footage is transcribed." />;
+  return <ChatPanel projectId={projectId} />;
 }
 
 /* ── Inspector ───────────────────────────────────────────────────────────── */

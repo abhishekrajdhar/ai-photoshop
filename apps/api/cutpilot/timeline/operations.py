@@ -93,6 +93,7 @@ class EditOperation(BaseModel):
     def _check_times(self) -> EditOperation:
         if self.start is not None and self.end is not None and self.end < self.start:
             raise ValueError("end must be >= start")
+        auto = bool(self.params.get("auto"))
         range_ops = {
             "remove_segment",
             "jump_cut",
@@ -105,6 +106,7 @@ class EditOperation(BaseModel):
         if (
             self.type in range_ops
             and self.segments is None
+            and not auto
             and (self.start is None or self.end is None)
         ):
             raise ValueError(f"{self.type} requires start and end")
@@ -118,12 +120,16 @@ class EditOperation(BaseModel):
         }:
             if self.timestamp is None and self.start is None:
                 raise ValueError(f"{self.type} requires timestamp")
-        if self.type in {"caption", "subtitle", "text_overlay"} and not self.text:
+        if self.type in {"caption", "subtitle", "text_overlay"} and not self.text and not auto:
             raise ValueError(f"{self.type} requires text")
         if self.type in {"cut", "split"} and self.timestamp is None:
             raise ValueError(f"{self.type} requires timestamp")
-        if self.type in {"filler_word_removal", "silence_removal"} and not self.segments:
-            raise ValueError(f"{self.type} requires segments")
+        if (
+            self.type in {"filler_word_removal", "silence_removal"}
+            and not self.segments
+            and not auto
+        ):
+            raise ValueError(f"{self.type} requires segments (or params.auto=true)")
         return self
 
     def effective_start(self) -> float:

@@ -22,14 +22,15 @@ export function PreviewPanel({ projectId }: { projectId: string }) {
   const timelineId = useEditorStore((s) => s.timelineId);
   const { data: state } = useTimeline(projectId, timelineId);
   const source = useEditorStore((s) => s.previewSource);
+  const previewDoc = useEditorStore((s) => s.previewDoc);
   const asset = source.kind === "asset" ? assets?.find((a) => a.id === source.assetId) : undefined;
   const assetById = useMemo(() => new Map((assets ?? []).map((a) => [a.id, a])), [assets]);
   return (
     <div className="flex h-full flex-col">
       {asset && asset.status === "ready" ? (
         <AssetPreview asset={asset} />
-      ) : state ? (
-        <TimelinePlayer doc={state.document} assetById={assetById} />
+      ) : previewDoc || state ? (
+        <TimelinePlayer doc={previewDoc ?? state!.document} assetById={assetById} />
       ) : (
         <EmptyState icon={<Film />} title="Preview" />
       )}
@@ -244,8 +245,8 @@ function TimelinePlayer({ doc, assetById }: { doc: TimelineDocument; assetById: 
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={containerRef} data-preview-root className="flex min-h-0 flex-1 items-center justify-center p-3 [container-type:inline-size]">
-        <div className="relative max-h-full max-w-full overflow-hidden rounded-md bg-black shadow-2xl" style={{ aspectRatio: `${aspect}`, height: "100%", maxWidth: "100%" }}>
+      <div ref={containerRef} data-preview-root className="flex min-h-0 flex-1 items-center justify-center p-3">
+        <div className="relative max-h-full max-w-full overflow-hidden rounded-md bg-black shadow-2xl [container-type:inline-size]" style={{ aspectRatio: `${aspect}`, height: "100%", maxWidth: "100%" }}>
           {[0, 1].map((i) => (
             <video
               key={i}
@@ -269,7 +270,7 @@ function TimelinePlayer({ doc, assetById }: { doc: TimelineDocument; assetById: 
             return (
               <div key={clip.id} className="absolute flex items-center justify-center" style={{ left: `${(pos.x - pos.w / 2) * 100}%`, top: `${(pos.y - pos.h / 2) * 100}%`, width: `${pos.w * 100}%`, height: `${pos.h * 100}%` }}>
                 {clip.kind === "text" ? (
-                  <span className="text-center font-semibold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,.8)]" style={{ fontSize: `${Number(clip.style.font_size ?? 36) / 18}cqw` }}>{clip.text}</span>
+                  <span className="text-center font-semibold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,.8)]" style={{ fontSize: `${(Number(clip.style.font_size ?? 48) / doc.settings.width) * 100}cqw` }}>{clip.text}</span>
                 ) : a?.thumbnail_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={a.stream_url} alt="" className="size-full object-contain" />
@@ -281,7 +282,7 @@ function TimelinePlayer({ doc, assetById }: { doc: TimelineDocument; assetById: 
             <div className={cn("pointer-events-none absolute left-0 right-0 flex px-[6%]", captionStyle.position === "top" ? "top-[8%]" : captionStyle.position === "center" ? "top-1/2 -translate-y-1/2" : "bottom-[8%]", captionStyle.alignment === "left" ? "justify-start" : captionStyle.alignment === "right" ? "justify-end" : "justify-center")}>
               <span
                 className="rounded px-2 py-1 text-center font-semibold leading-tight"
-                style={{ fontSize: `${captionStyle.font_size / 30}cqw`, color: captionStyle.color, background: captionStyle.background ?? "transparent", textShadow: `0 0 ${captionStyle.outline}px ${captionStyle.outline_color}, 0 0 ${captionStyle.outline * 2}px ${captionStyle.outline_color}`, textTransform: captionStyle.uppercase ? "uppercase" : undefined, fontFamily: captionStyle.font }}
+                style={{ fontSize: `${(captionStyle.font_size / doc.settings.width) * 100}cqw`, lineHeight: 1.25, color: captionStyle.color, background: captionStyle.background ?? "transparent", textShadow: `0 0 ${captionStyle.outline}px ${captionStyle.outline_color}, 0 0 ${captionStyle.outline * 2}px ${captionStyle.outline_color}`, textTransform: captionStyle.uppercase ? "uppercase" : undefined, fontFamily: captionStyle.font }}
               >
                 {activeCaption.words?.length
                   ? activeCaption.words.map((w, i) => (

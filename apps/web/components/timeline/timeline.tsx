@@ -21,9 +21,10 @@ const MAX_ZOOM = 400;
 export function Timeline({ projectId }: { projectId: string }) {
   const actions = useTimelineActions(projectId);
   const { doc: serverDoc, state, assetById } = actions;
-  const { playhead, zoom, snapping, selectedClipIds, set, selectClip, setPlayhead } = useEditorStore();
+  const { playhead, zoom, snapping, selectedClipIds, set, selectClip, setPlayhead, previewDoc, cutOverlay } = useEditorStore();
   const [workingDoc, setWorkingDoc] = useState<TimelineDocument | null>(null);
-  const doc = workingDoc ?? serverDoc;
+  const doc = previewDoc ?? workingDoc ?? serverDoc;
+  const readOnly = !!previewDoc;
   const lanesRef = useRef<HTMLDivElement>(null);
   const [viewportW, setViewportW] = useState(800);
   const fps = doc?.settings.fps ?? 30;
@@ -71,7 +72,7 @@ export function Timeline({ projectId }: { projectId: string }) {
   /* ── clip drag / trim ──────────────────────────────────────────────────── */
   const onClipMouseDown = useCallback(
     (e: React.MouseEvent, clip: Clip, mode: "move" | "trim-in" | "trim-out") => {
-      if (!serverDoc) return;
+      if (!serverDoc || readOnly) return;
       e.preventDefault();
       e.stopPropagation();
       if (mode === "move") {
@@ -145,7 +146,7 @@ export function Timeline({ projectId }: { projectId: string }) {
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [actions, assetById, playhead, selectClip, selectedClipIds, serverDoc, set, snapping, zoom],
+    [actions, assetById, playhead, readOnly, selectClip, selectedClipIds, serverDoc, set, snapping, zoom],
   );
 
   /* ── asset drop ────────────────────────────────────────────────────────── */
@@ -235,12 +236,35 @@ export function Timeline({ projectId }: { projectId: string }) {
   }, [playhead, playing, zoom]);
 
   const clipCount = useMemo(() => doc?.tracks.reduce((n, t) => n + t.clips.length, 0) ?? 0, [doc]);
+  // Proposal cut overlay: source ranges → timeline ranges on the (server) document
+  const overlayRanges = useMemo(() => {
+    if (!cutOverlay || !serverDoc) return [] as { start: number; end: number }[];
+    const out: { start: number; end: number }[] = [];
+    for (const tr of serverDoc.tracks) {
+      if (tr.kind !== "video") continue;
+      for (const c of tr.clips) {
+        if (cutOverlay.assetId && c.asset_id !== cutOverlay.assetId) continue;
+        for (const r of cutOverlay.ranges) {
+          const a = Math.max(r.start, c.source_in);
+          const b = Math.min(r.end, c.source_out);
+          if (b > a) out.push({ start: c.timeline_start + (a - c.source_in) / c.speed, end: c.timeline_start + (b - c.source_in) / c.speed });
+        }
+      }
+    }
+    return out;
+  }, [cutOverlay, serverDoc]);
   const selectedClips = selectedClipIds;
 
   if (!doc) return <div className="flex h-full items-center justify-center text-[12px] text-fg-subtle">Loading timeline…</div>;
 
   return (
     <div className="flex h-full flex-col" onWheel={onWheel}>
+      {readOnly && (
+        <div className="flex h-8 shrink-0 items-center justify-between border-b border-accent/40 bg-accent/15 px-3 text-[12px]">
+          <span className="font-medium text-accent">Previewing AI proposal — the timeline is read-only until you apply or exit.</span>
+          <Button size="xs" variant="ghost" onClick={() => set({ previewDoc: null, previewMessageId: null })}>Exit preview</Button>
+        </div>
+      )}
       {/* toolbar */}
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
         <span className="mr-2 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Timeline · {doc.name}</span>
@@ -328,6 +352,9 @@ export function Timeline({ projectId }: { projectId: string }) {
                 ))}
                 {dropHint?.trackId === track.id && <div className="pointer-events-none absolute top-0 h-full w-px bg-accent" style={{ left: dropHint.t * zoom }} />}
               </div>
+            ))}
+            {overlayRanges.map((r, i) => (
+              <div key={i} className="pointer-events-none absolute top-7 z-20 h-[calc(100%-28px)] border-x border-danger/70 bg-[repeating-linear-gradient(135deg,rgba(255,92,122,.28)_0,rgba(255,92,122,.28)_6px,transparent_6px,transparent_12px)]" style={{ left: r.start * zoom, width: Math.max(2, (r.end - r.start) * zoom) }} />
             ))}
             {/* playhead */}
             <div className="pointer-events-none absolute top-0 z-30 h-full w-px bg-danger" style={{ left: playhead * zoom }}>

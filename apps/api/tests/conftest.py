@@ -15,6 +15,8 @@ os.environ["WORK_DIR"] = tempfile.mkdtemp(prefix="cutpilot-work-")
 os.environ["STORAGE_PROVIDER"] = "local"
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["RATE_LIMIT_PER_MINUTE"] = "100000"
+os.environ["AI_RATE_LIMIT_PER_MINUTE"] = "100000"
 
 import pytest
 import pytest_asyncio

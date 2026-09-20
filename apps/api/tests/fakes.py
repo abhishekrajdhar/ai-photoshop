@@ -158,3 +158,64 @@ DEFAULT_RESPONSES: dict[str, Any] = {
         "editing_opportunities": [{"t": 1.0, "suggestion": "add lower third", "confidence": 0.4}],
     },
 }
+
+
+class ScriptedLLM(FakeLLM):
+    """Plays back a scripted sequence of responses (tool calls or final text/JSON)."""
+
+    def __init__(self, script: list[Any]):
+        super().__init__()
+        self.script = list(script)
+
+    def complete(
+        self,
+        *,
+        messages,
+        system=None,
+        json_schema=None,
+        schema_name="response",
+        tools=None,
+        max_tokens=4096,
+        temperature=0.2,
+        model=None,
+    ) -> LLMResponse:  # type: ignore[no-untyped-def]
+        self.calls.append(
+            {
+                "schema": schema_name,
+                "messages": len(messages),
+                "tools": [t.name for t in tools or []],
+                "images": 0,
+                "last_role": messages[-1].role,
+            }
+        )
+        step = self.script.pop(0) if self.script else {"text": "Done."}
+        if "tool_calls" in step:
+            from cutpilot.ai.providers.base import ToolCall
+
+            return LLMResponse(
+                provider=self.name,
+                model="fake-model",
+                text=step.get("text"),
+                tool_calls=[
+                    ToolCall(id=f"call_{i}", name=n, arguments=a)
+                    for i, (n, a) in enumerate(step["tool_calls"])
+                ],
+                input_tokens=50,
+                output_tokens=20,
+            )
+        if "json" in step:
+            return LLMResponse(
+                provider=self.name,
+                model="fake-model",
+                text=json.dumps(step["json"]),
+                json=step["json"],
+                input_tokens=50,
+                output_tokens=20,
+            )
+        return LLMResponse(
+            provider=self.name,
+            model="fake-model",
+            text=step.get("text", ""),
+            input_tokens=50,
+            output_tokens=20,
+        )
