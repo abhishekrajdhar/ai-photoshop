@@ -24,9 +24,10 @@ out/
 *.tsbuildinfo
 .turbo/
 
-# Data / media
+# Data / media (local media roots only — not the cutpilot.storage package)
 data/
-storage/
+/storage/
+apps/api/storage/
 *.log
 
 # OS / editor
