@@ -81,6 +81,8 @@ npm run typecheck && npm run lint && npm test
 cp ../../.env.example .env   # set DATABASE_URL / REDIS_URL / LOCAL_STORAGE_ROOT / WORK_DIR to local paths
 .venv/bin/alembic upgrade head
 .venv/bin/uvicorn cutpilot.main:app --port 8000 --reload
+# Optional: local transcription without cloud keys (CPU): uv pip install --python .venv/bin/python -e ".[local-transcription]"
+#           then set LOCAL_TRANSCRIPTION_ENABLED=true TRANSCRIPTION_PROVIDER=faster_whisper
 # 2. Worker — on macOS use the threads pool (Celery's default prefork/spawn pool crashes on macOS + Python 3.12):
 .venv/bin/celery -A cutpilot.workers.celery_app:celery_app worker -Q media,ai,render -P threads --concurrency=4
 # 3. Web:

@@ -45,7 +45,9 @@ export function useProjectEvents(projectId: string | undefined, handlers: Partia
         } catch {
           return;
         }
-        const { event, data } = payload;
+        const event = payload.event ?? ev.type;
+        const data: Record<string, unknown> = payload.data ?? {};
+        if (event === "heartbeat") return;
         if (data.job_id) {
           upsert({
             id: String(data.job_id),

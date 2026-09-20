@@ -42,7 +42,9 @@ dev = [
     "mypy>=1.11",
     "types-aiofiles",
 ]
-# Optional local AI adapters (heavy, GPU recommended). Install on GPU workers only.
+# Lightweight local transcription (CPU-friendly, no torch).
+local-transcription = ["faster-whisper>=1.0"]
+# Full local AI adapters (heavy, GPU recommended). Install on GPU workers only.
 local-ai = [
     "faster-whisper>=1.0",
     "whisperx>=3.1",
