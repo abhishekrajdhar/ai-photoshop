@@ -256,3 +256,10 @@ def test_captions_follow_video_and_never_stack() -> None:
         (4.0, 6.0),
     ]
     assert not result.rejected
+
+
+def test_operation_normalises_timestamp_duration_and_empty_segments() -> None:
+    op = EditOperation(type="remove_segment", asset_id="a", timestamp=5.0, duration=2.0)
+    assert (op.start, op.end) == (5.0, 7.0)
+    op = EditOperation(type="remove_segment", asset_id="a", start=1.0, end=2.0, segments=[])
+    assert op.segments is None

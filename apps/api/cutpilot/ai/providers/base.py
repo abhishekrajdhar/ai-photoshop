@@ -49,6 +49,8 @@ class Message:
     # assistant messages may carry tool calls; tool messages answer one
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
+    # Provider-native content blocks of an assistant turn (replayed verbatim by the same provider).
+    raw: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -70,6 +72,7 @@ class LLMResponse:
     latency_ms: int = 0
     stop_reason: str | None = None
     raw_text: str | None = None
+    raw_content: list[dict[str, Any]] | None = None
 
 
 class LLMProvider(abc.ABC):
@@ -83,12 +86,14 @@ class LLMProvider(abc.ABC):
         system: str | None = None,
         json_schema: dict[str, Any] | None = None,
         schema_name: str = "response",
+        schema_model: type[Any] | None = None,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.2,
         model: str | None = None,
     ) -> LLMResponse:
-        """Run one completion. When json_schema is given the response must be a JSON object."""
+        """Run one completion. When json_schema is given the response must be a JSON object.
+        `schema_model` (a Pydantic class) lets providers use native structured-output helpers."""
 
     @abc.abstractmethod
     def default_model(self, purpose: Literal["planner", "vision"]) -> str: ...

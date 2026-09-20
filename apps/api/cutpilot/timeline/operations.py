@@ -61,6 +61,17 @@ TimeRef = Literal["source", "timeline"]
 OpSource = Literal["ai", "user", "system"]
 
 
+RANGE_TYPES = {
+    "remove_segment",
+    "jump_cut",
+    "caption",
+    "subtitle",
+    "text_overlay",
+    "speed_change",
+    "audio_gain",
+}
+
+
 class EditOperation(BaseModel):
     """One structured, reversible edit decision."""
 
@@ -91,6 +102,18 @@ class EditOperation(BaseModel):
 
     @model_validator(mode="after")
     def _check_times(self) -> EditOperation:
+        # Normalise alternative spellings the planner may use: timestamp+duration ≡ start/end.
+        if self.start is None and self.timestamp is not None and self.type in RANGE_TYPES:
+            self.start = self.timestamp
+        if (
+            self.end is None
+            and self.start is not None
+            and self.duration is not None
+            and self.type in RANGE_TYPES
+        ):
+            self.end = self.start + self.duration
+        if self.segments is not None and not self.segments:
+            self.segments = None
         if self.start is not None and self.end is not None and self.end < self.start:
             raise ValueError("end must be >= start")
         auto = bool(self.params.get("auto"))

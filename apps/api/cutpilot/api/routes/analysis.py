@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from cutpilot.ai.router import provider_status
+from cutpilot.ai.transcription import transcription_available
 from cutpilot.api.deps import CurrentUser, DBSession, OwnedProject, ai_rate_limit, rate_limit
 from cutpilot.core.config import get_settings
 from cutpilot.core.errors import NotFoundError
@@ -154,9 +155,11 @@ async def ai_status(project: OwnedProject) -> AIStatusOut:
     return AIStatusOut(
         **status,
         transcription={
-            "provider": s.transcription_provider if s.local_transcription_enabled else "openai",
+            "provider": s.transcription_provider
+            if s.local_transcription_enabled
+            else ("openai" if s.openai_api_key else "faster_whisper"),
             "local_enabled": s.local_transcription_enabled,
             "diarization": s.local_diarization_enabled,
-            "available": bool(s.openai_api_key) or s.local_transcription_enabled,
+            "available": transcription_available(),
         },
     )

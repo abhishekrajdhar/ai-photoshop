@@ -84,7 +84,7 @@ def run_chat(
             messages=messages,
             system=system,
             tools=TOOL_SPECS,
-            max_tokens=2500,
+            max_tokens=8000,
             temperature=0.3,
             meta={"round": round_no},
         )

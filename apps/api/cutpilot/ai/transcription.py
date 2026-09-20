@@ -379,7 +379,7 @@ class WhisperXTranscription(TranscriptionProvider):
 
 
 def get_transcription_provider() -> TranscriptionProvider:
-    """Local provider when enabled and importable; otherwise the OpenAI API."""
+    """Order: explicitly enabled local provider → OpenAI API → faster-whisper if installed (auto)."""
     s = get_settings()
     if s.local_transcription_enabled and s.transcription_provider != "openai":
         try:
@@ -392,6 +392,25 @@ def get_transcription_provider() -> TranscriptionProvider:
             log.warning("local_transcription_unavailable", error=str(exc))
     if s.openai_api_key:
         return OpenAITranscription()
+    try:
+        provider = FasterWhisperTranscription()
+        log.info("transcription_auto_local", model=provider.model)
+        return provider
+    except AIConfigurationError:
+        pass
     raise AIConfigurationError(
-        "No transcription provider available: set OPENAI_API_KEY or enable a local provider"
+        "No transcription provider available: set OPENAI_API_KEY or install faster-whisper "
+        "(pip install 'cutpilot-api[local-transcription]')"
     )
+
+
+def transcription_available() -> bool:
+    s = get_settings()
+    if s.openai_api_key or s.local_transcription_enabled:
+        return True
+    try:
+        import faster_whisper  # noqa: F401
+
+        return True
+    except ImportError:
+        return False

@@ -10,10 +10,14 @@ PRICING: dict[str, tuple[float, float]] = {
     "gpt-5": (1.25, 10.00),
     "o3": (2.00, 8.00),
     "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (3.00, 15.00),
-    "claude-opus-5": (15.00, 75.00),
-    "claude-sonnet-4": (3.00, 15.00),
-    "claude-opus-4": (15.00, 75.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-4-7": (5.00, 25.00),
+    "claude-opus-4-6": (5.00, 25.00),
+    "claude-fable-5-1": (10.00, 50.00),
+    "claude-fable-5": (10.00, 50.00),
 }
 
 TRANSCRIPTION_PER_MINUTE: dict[str, float] = {

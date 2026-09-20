@@ -1,6 +1,6 @@
 "use client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { api, ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import type { MediaAsset } from "@/lib/types";
 
 export function useAssets(projectId: string | undefined) {
@@ -93,9 +93,18 @@ export function uploadFile(projectId: string, file: File, opts: { kind?: string;
       }
     });
     await Promise.all(workers);
-    const done = await apiPost<{ asset: MediaAsset; job_id: string }>(`/projects/${projectId}/uploads/${uploadId}/complete`);
-    opts.onProgress?.(1, file.size);
-    return { asset: done.asset, job_id: done.job_id, duplicate: false };
+    // Complete; if the server reports missing chunks (e.g. a request was lost), re-send just those and retry.
+    for (let round = 0; ; round++) {
+      try {
+        const done = await apiPost<{ asset: MediaAsset; job_id: string }>(`/projects/${projectId}/uploads/${uploadId}/complete`);
+        opts.onProgress?.(1, file.size);
+        return { asset: done.asset, job_id: done.job_id, duplicate: false };
+      } catch (err) {
+        const missing = err instanceof ApiError && err.status === 422 ? (err.details.missing_chunks as number[] | undefined) : undefined;
+        if (!missing?.length || round >= 3 || controller.signal.aborted) throw err;
+        for (const idx of missing) await sendChunk(idx);
+      }
+    }
   })();
   return { promise, cancel: () => controller.abort() };
 }

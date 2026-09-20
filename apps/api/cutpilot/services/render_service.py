@@ -16,6 +16,77 @@ from cutpilot.schemas.render import ExportOut, PresetOut, RenderOut
 from cutpilot.services import job_service
 from cutpilot.services import timeline_service as ts
 
+PLATFORM_PRESET = {
+    "youtube_shorts": "youtube_shorts",
+    "instagram_reels": "instagram_reel",
+    "tiktok": "tiktok",
+    "youtube": "youtube_1080p",
+    "podcast": "podcast",
+    "linkedin": "youtube_1080p",
+    "twitter": "youtube_1080p",
+    "generic": "youtube_1080p",
+}
+
+
+def preset_for_platform(platform: str | None) -> str:
+    return PLATFORM_PRESET.get((platform or "").lower(), "youtube_shorts")
+
+
+def start_render_sync(
+    session,
+    *,
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    timeline_id: uuid.UUID,
+    preset: str,
+    filename: str,
+    settings: dict[str, Any] | None = None,
+) -> tuple[Render, Job]:  # type: ignore[no-untyped-def]
+    """Worker-side render kickoff (e.g. auto-render generated Shorts)."""
+    from cutpilot.db.models import Timeline
+    from cutpilot.services.job_service import create_job_sync
+    from cutpilot.services.timeline_sync import current_version
+    from cutpilot.workers.tasks.render import render_timeline
+
+    timeline = session.get(Timeline, timeline_id)
+    version = current_version(session, timeline) if timeline else None
+    if timeline is None or version is None:
+        raise ValidationFailed("Timeline not found")
+    resolved = resolve_preset(preset if preset in PRESETS else "youtube_shorts", settings or {})
+    render = Render(
+        project_id=project_id,
+        timeline_version_id=version.id,
+        kind="final",
+        status="QUEUED",
+        preset=resolved.id,
+        settings={**resolved.to_dict(), "filename": safe_name(filename, f"{timeline.name}.mp4")},
+    )
+    session.add(render)
+    session.commit()
+    job = create_job_sync(
+        session,
+        user_id=user_id,
+        project_id=project_id,
+        job_type="RENDERING",
+        meta={
+            "render_id": str(render.id),
+            "timeline_id": str(timeline.id),
+            "version": version.version,
+            "preset": resolved.id,
+            "kind": "final",
+            "short": True,
+        },
+        max_retries=1,
+    )
+    render.job_id = job.id
+    session.commit()
+    task = render_timeline.apply_async(
+        kwargs={"job_id": str(job.id), "render_id": str(render.id)}, queue="render"
+    )
+    job.celery_task_id = task.id
+    session.commit()
+    return render, job
+
 
 def list_presets() -> list[PresetOut]:
     return [PresetOut(**p.to_dict()) for p in PRESETS.values() if p.id != "preview"]

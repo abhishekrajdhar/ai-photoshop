@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useEffect } from "react";
-import { ArrowLeft, Bot, ClapperboardIcon, Download, FileText, History, SlidersHorizontal } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Bot, ClapperboardIcon, Download, FileText, History, SlidersHorizontal, Smartphone } from "lucide-react";
+import { ShortsDialog } from "@/components/editor/creator-panel";
 import { Logo } from "@/components/layout/logo";
 import { JobsIndicator } from "@/components/editor/jobs-indicator";
 import { MediaPanel } from "@/components/editor/media-panel";
@@ -22,6 +23,7 @@ export function Editor({ projectId }: { projectId: string }) {
   useRequireAuth();
   const { data: project, isLoading } = useProject(projectId);
   const { leftTab, rightTab, set } = useEditorStore();
+  const [shortsOpen, setShortsOpen] = useState(false);
   useProjectEvents(projectId);
   useTimeline(projectId);
   useEffect(() => {
@@ -40,6 +42,8 @@ export function Editor({ projectId }: { projectId: string }) {
         </div>
         <div className="flex items-center gap-1">
           <JobsIndicator projectId={projectId} />
+          <Button variant="secondary" size="sm" onClick={() => setShortsOpen(true)}><Smartphone /> Shorts & Reels</Button>
+          <ShortsDialog projectId={projectId} open={shortsOpen} onOpenChange={setShortsOpen} highlightIds={[]} />
           <Button variant="ghost" size="sm" onClick={() => set({ rightTab: "versions" })}><History /> History</Button>
           <Button size="sm" onClick={() => set({ rightTab: "export" })}><Download /> Export</Button>
         </div>

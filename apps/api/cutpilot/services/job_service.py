@@ -114,6 +114,33 @@ def _job_event(job: Job) -> dict[str, Any]:
 # ── synchronous helpers for workers ──────────────────────────────────────────
 
 
+def create_job_sync(
+    session: Session,
+    *,
+    user_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    job_type: str,
+    meta: dict[str, Any] | None = None,
+    max_retries: int = 1,
+) -> Job:
+    """Create a job from worker code (sync session). Dispatching the Celery task is the caller's job."""
+    if job_type not in JOB_TYPES:
+        raise ValueError(f"unknown job type {job_type}")
+    job = Job(
+        user_id=user_id,
+        project_id=project_id,
+        type=job_type,
+        status="QUEUED",
+        meta=meta or {},
+        queued_at=datetime.now(UTC),
+        max_retries=max_retries,
+    )
+    session.add(job)
+    session.commit()
+    sync_publisher.publish("job.queued", _job_event(job), project_id=project_id, user_id=user_id)
+    return job
+
+
 class JobContext:
     """Worker-side handle for updating a job's progress and emitting events."""
 

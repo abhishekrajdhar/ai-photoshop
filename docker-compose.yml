@@ -52,6 +52,7 @@ services:
       - minio-data:/data
 
   api:
+    image: cutpilot-api
     build:
       context: .
       dockerfile: infrastructure/docker/api.Dockerfile
@@ -73,9 +74,7 @@ services:
       retries: 10
 
   worker-media:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/api.Dockerfile
+    image: cutpilot-api   # same image as the API; only `api` builds it
     <<: *api-env
     command: ["/app/scripts/start-worker.sh", "media,render", "2"]
     depends_on:
@@ -86,9 +85,7 @@ services:
       - media-data:/data
 
   worker-ai:
-    build:
-      context: .
-      dockerfile: infrastructure/docker/api.Dockerfile
+    image: cutpilot-api   # same image as the API; only `api` builds it
     <<: *api-env
     command: ["/app/scripts/start-worker.sh", "ai", "2"]
     depends_on:

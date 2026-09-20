@@ -15,7 +15,7 @@ WORKDIR /app
 
 COPY apps/api/pyproject.toml /app/pyproject.toml
 COPY apps/api/cutpilot/__init__.py /app/cutpilot/__init__.py
-RUN pip install --upgrade pip && pip install -e ".[dev]"
+RUN pip install --upgrade pip && pip install -e ".[dev,local-transcription]"
 
 COPY apps/api /app
 

@@ -89,6 +89,8 @@ async def start_short_generation(
     highlight_ids: list[uuid.UUID] | None = None,
     caption_preset: str = "bold",
     reframe: bool = True,
+    auto_render: bool = False,
+    render_preset: str | None = None,
 ) -> Job:
     from cutpilot.services.analysis_service import primary_source_asset
     from cutpilot.workers.tasks.ai import generate_shorts_task
@@ -114,6 +116,8 @@ async def start_short_generation(
             "highlight_ids": [str(h) for h in highlight_ids] if highlight_ids else None,
             "caption_preset": caption_preset,
             "reframe": reframe,
+            "auto_render": auto_render,
+            "render_preset": render_preset,
         },
         queue="ai",
     )

@@ -225,11 +225,35 @@ async def receive_chunk(
         tmp.unlink(missing_ok=True)
         raise ValidationFailed(f"Chunk {index} has {written} bytes, expected {expected}")
     tmp.replace(part)
-    received = sorted({*upload.received_chunks, index})
-    upload.received_chunks = received
+    # Serialize the bookkeeping update: chunks arrive in parallel and would otherwise clobber each other.
+    locked = (
+        await db.execute(
+            select(UploadSession).where(UploadSession.id == upload.id).with_for_update()
+        )
+    ).scalar_one()
+    locked.received_chunks = sorted({*locked.received_chunks, index})
     await db.commit()
-    await db.refresh(upload)
-    return upload
+    await db.refresh(locked)
+    return locked
+
+
+def chunks_on_disk(upload: UploadSession) -> list[int]:
+    """Indices whose chunk file exists with the expected size (the source of truth for completeness)."""
+    directory = chunk_dir(upload.id)
+    present: list[int] = []
+    for index in range(upload.total_chunks):
+        part = directory / f"chunk_{index:06d}"
+        expected = (
+            upload.chunk_size
+            if index < upload.total_chunks - 1
+            else upload.size_bytes - upload.chunk_size * (upload.total_chunks - 1)
+        )
+        try:
+            if part.stat().st_size == expected:
+                present.append(index)
+        except OSError:
+            continue
+    return present
 
 
 async def complete_upload(
@@ -262,11 +286,20 @@ async def complete_upload(
             )
         if job is not None:
             return asset, job
-    missing = [i for i in range(upload.total_chunks) if i not in set(upload.received_chunks)]
+    present = set(chunks_on_disk(upload))
+    if present != set(upload.received_chunks):
+        upload.received_chunks = sorted(present)
+        await db.commit()
+    missing = [i for i in range(upload.total_chunks) if i not in present]
     if missing:
         raise ValidationFailed(
             "Upload incomplete",
-            details={"missing_chunks": missing[:50], "missing_count": len(missing)},
+            details={
+                "missing_chunks": missing[:200],
+                "missing_count": len(missing),
+                "received": len(present),
+                "total": upload.total_chunks,
+            },
         )
     ext = Path(upload.filename).suffix.lower()
     media_type = (

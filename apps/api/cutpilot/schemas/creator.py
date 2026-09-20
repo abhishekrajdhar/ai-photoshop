@@ -39,6 +39,10 @@ class ShortsRequest(APIModel):
     highlight_ids: list[uuid.UUID] | None = None
     caption_preset: str = "bold"
     reframe: bool = True
+    auto_render: bool = False
+    render_preset: str | None = (
+        None  # defaults to the platform preset (youtube_shorts | instagram_reel | tiktok)
+    )
 
 
 class ThumbnailCandidateOut(APIModel):

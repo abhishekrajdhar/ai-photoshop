@@ -300,6 +300,8 @@ def generate_shorts_task(
     highlight_ids: list[str] | None = None,
     caption_preset: str = "bold",
     reframe: bool = True,
+    auto_render: bool = False,
+    render_preset: str | None = None,
 ) -> dict[str, Any]:
     """Create one 9:16 timeline per highlight: hook-first, jump cuts (silence/filler), captions, zooms, tracking."""
     from cutpilot.ai.expansion import current_transcript as _ct
@@ -564,15 +566,26 @@ def generate_shorts_task(
             "target_duration": duration,
         }
         session.commit()
-        created.append(
-            {
-                "timeline_id": str(tl.id),
-                "name": tl.name,
-                "duration": final.duration(),
-                "title": h["title"],
-                "caption_suggestion": h.get("caption_suggestion", ""),
-            }
-        )
+        entry = {
+            "timeline_id": str(tl.id),
+            "name": tl.name,
+            "duration": final.duration(),
+            "title": h["title"],
+            "caption_suggestion": h.get("caption_suggestion", ""),
+        }
+        if auto_render:
+            from cutpilot.services.render_service import preset_for_platform, start_render_sync
+
+            render, rjob = start_render_sync(
+                session,
+                project_id=project.id,
+                user_id=ctx.job.user_id,
+                timeline_id=tl.id,
+                preset=render_preset or preset_for_platform(platform),
+                filename=f"{h['title'][:60]}.mp4",
+            )
+            entry.update({"render_id": str(render.id), "render_job_id": str(rjob.id)})
+        created.append(entry)
     sync_publisher.publish(
         "short_generation.completed", {"timelines": created}, project_id=project.id
     )

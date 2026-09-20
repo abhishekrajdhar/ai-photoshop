@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     openai_planner_model: str = "gpt-4o"
     openai_vision_model: str = "gpt-4o"
     openai_transcription_model: str = "whisper-1"
-    anthropic_planner_model: str = "claude-sonnet-5"
-    anthropic_vision_model: str = "claude-sonnet-5"
+    anthropic_planner_model: str = "claude-opus-5"
+    anthropic_vision_model: str = "claude-opus-5"
+    anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     ai_max_retries: int = 2
     ai_request_timeout_seconds: int = 120
 

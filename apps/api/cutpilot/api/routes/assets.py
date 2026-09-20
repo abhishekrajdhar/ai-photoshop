@@ -71,7 +71,9 @@ async def upload_status(
     return UploadStatusOut(
         upload_id=upload.id,
         status=upload.status,
-        received_chunks=list(upload.received_chunks),
+        received_chunks=svc.chunks_on_disk(upload)
+        if upload.status == "open"
+        else list(upload.received_chunks),
         total_chunks=upload.total_chunks,
         asset_id=upload.asset_id,
     )

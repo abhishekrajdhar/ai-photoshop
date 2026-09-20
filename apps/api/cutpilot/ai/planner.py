@@ -97,7 +97,7 @@ class EditingPlannerProvider:
             EditDecisionList,
             operation="planner",
             messages=[Message(role="user", content=prompt)],
-            max_tokens=6000,
+            max_tokens=16000,
             temperature=0.2,
             meta={"planner": self.provider or "auto"},
         )

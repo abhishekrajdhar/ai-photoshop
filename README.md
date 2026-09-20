@@ -120,8 +120,10 @@ make api-lint web-lint web-typecheck
 
 ## Known limitations
 
-- Highlights, content/vision analysis and the AI editor need an OpenAI or Anthropic key; transcription
-  needs `OPENAI_API_KEY` or a local Whisper provider (`.[local-transcription]`).
+- Highlights, content/vision analysis and the AI editor need an OpenAI **or** Anthropic key (either alone is
+  enough). Transcription uses OpenAI `whisper-1` when `OPENAI_API_KEY` is set, otherwise faster-whisper on
+  CPU (bundled in the Docker image; the `base` model downloads on first use, ~150 MB). Set
+  `WHISPER_MODEL_SIZE=small|medium` for better accuracy at the cost of speed.
 - Password-reset emails are not sent (no mail provider); the link is logged (and returned in development).
 - Crossfades need media handles on both clips; otherwise they render as cuts (with a warning).
 - Face tracking uses YuNet on sampled frames (2 fps) — fast, but not a full object tracker; SAM 2 / object

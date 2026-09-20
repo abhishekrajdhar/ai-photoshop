@@ -89,6 +89,7 @@ class OpenAIProvider(LLMProvider):
         system: str | None = None,
         json_schema: dict[str, Any] | None = None,
         schema_name: str = "response",
+        schema_model: type[Any] | None = None,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.2,

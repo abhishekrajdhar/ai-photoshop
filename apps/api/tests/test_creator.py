@@ -88,11 +88,25 @@ async def test_highlights_shorts_and_thumbnails(
     assert set(hl[0]["factors"]) >= {"informative", "hook_strength", "clarity", "hook_line"}
 
     res = await auth_client.post(
-        f"/api/projects/{pid}/shorts", json={"count": 2, "duration": 15, "caption_preset": "bold"}
+        f"/api/projects/{pid}/shorts",
+        json={
+            "count": 2,
+            "duration": 15,
+            "caption_preset": "bold",
+            "platform": "instagram_reels",
+            "auto_render": True,
+            "render_preset": "preview",
+        },
     )
     assert res.status_code == 200, res.text
     job = (await auth_client.get(f"/api/jobs/{res.json()['jobs'][0]['id']}")).json()
     assert job["status"] == "COMPLETED", job["error"]
+    created = job["result"]["timelines"]
+    assert all(c.get("render_id") for c in created)
+    renders = (await auth_client.get(f"/api/projects/{pid}/renders")).json()
+    assert len([r for r in renders if r["status"] == "COMPLETED"]) == 2 and all(
+        r["settings"]["width"] == 1280 for r in renders
+    )
     timelines = (await auth_client.get(f"/api/projects/{pid}/timelines")).json()
     shorts = [t for t in timelines if t["kind"] == "short"]
     assert len(shorts) == 2

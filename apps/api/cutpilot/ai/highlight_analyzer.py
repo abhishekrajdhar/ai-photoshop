@@ -80,7 +80,7 @@ def detect_highlights(
         HighlightList,
         operation="highlights",
         messages=[Message(role="user", content=prompt)],
-        max_tokens=3500,
+        max_tokens=8000,
     )
     out: list[dict[str, Any]] = []
     for h in parsed.highlights:

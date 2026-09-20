@@ -13,6 +13,7 @@ import { useTimeline } from "@/lib/timeline";
 import { cn, formatBytes, formatDuration, relativeTime } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor";
 import { useJobsStore } from "@/stores/jobs";
+import { ShortsList } from "@/components/editor/creator-panel";
 
 const CAPTION_FORMATS = [{ id: "srt", label: "SRT" }, { id: "vtt", label: "WebVTT" }, { id: "ass", label: "ASS" }];
 const PRO_FORMATS = [{ id: "otio", label: "OpenTimelineIO" }, { id: "edl", label: "EDL (CMX3600)" }, { id: "fcpxml", label: "FCPXML" }];
@@ -38,6 +39,8 @@ export function ExportPanel({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col">
       <div className="panel-header">Export</div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3 text-[12px]">
+        <ShortsList projectId={projectId} />
+        <Separator className="my-3" />
         <section className="space-y-2.5">
           <div className="grid grid-cols-[80px_1fr] items-center gap-2">
             <Label>Preset</Label>

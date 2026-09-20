@@ -17,13 +17,13 @@ class TimedText(BaseModel):
     start: float
     end: float
     text: str = ""
-    importance: float | None = None
-    kind: str | None = None
-    reason: str | None = None
-    repeats: str | None = None
-    confidence: float | None = None
-    score: float | None = None
-    query: str | None = None
+    importance: float = 0.0
+    kind: str = ""
+    reason: str = ""
+    repeats: str = ""
+    confidence: float = 0.0
+    score: float = 0.0
+    query: str = ""
 
 
 class SectionAnalysis(BaseModel):
@@ -116,7 +116,7 @@ def analyze_transcript(
             SectionAnalysis,
             operation="transcript_analysis",
             messages=[Message(role="user", content=prompt)],
-            max_tokens=3000,
+            max_tokens=8000,
             meta={"section": i},
         )
         section.section_start, section.section_end = chunk[0]["start"], chunk[-1]["end"]
@@ -124,7 +124,9 @@ def analyze_transcript(
         sections.append(section)
         if on_progress:
             on_progress(0.1 + 0.7 * (i + 1) / len(chunks))
-    compact = [s.model_dump(exclude_none=True, exclude={"broll_opportunities"}) for s in sections]
+    compact = [
+        s.model_dump(exclude_defaults=True, exclude={"broll_opportunities"}) for s in sections
+    ]
     summary_prompt = render_prompt(
         "transcript_summary",
         context=context,
@@ -135,7 +137,7 @@ def analyze_transcript(
         ProjectSummary,
         operation="transcript_summary",
         messages=[Message(role="user", content=summary_prompt)],
-        max_tokens=2500,
+        max_tokens=8000,
     )
     summary.chapters = _normalize_chapters(summary.chapters, duration)
     if on_progress:
@@ -200,6 +202,6 @@ def aggregate_sections(sections: list[SectionAnalysis]) -> dict[str, list[dict[s
     ):
         items: list[dict[str, Any]] = []
         for s in sections:
-            items.extend(it.model_dump(exclude_none=True) for it in getattr(s, name))
+            items.extend(it.model_dump(exclude_defaults=True) for it in getattr(s, name))
         agg[name] = sorted(items, key=lambda x: x["start"])
     return agg

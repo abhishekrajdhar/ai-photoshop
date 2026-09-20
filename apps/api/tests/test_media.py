@@ -162,3 +162,73 @@ async def test_asset_authorization(
     assert (await other_client.delete(f"/api/assets/{aid}")).status_code == 403
     assert (await auth_client.delete(f"/api/assets/{aid}")).status_code == 200
     assert (await auth_client.get(f"/api/assets/{aid}")).status_code == 404
+
+
+async def test_parallel_chunk_uploads_do_not_lose_receipts(
+    auth_client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from cutpilot.core import config
+
+    monkeypatch.setattr(config.get_settings(), "upload_chunk_size", 32 * 1024)
+    pid = (await auth_client.post("/api/projects", json={"name": "parallel"})).json()["id"]
+    data = make_test_video(tmp_path / "p.mp4", duration=3).read_bytes()
+    init = (
+        await auth_client.post(
+            f"/api/projects/{pid}/uploads",
+            json={"filename": "p.mp4", "mime_type": "video/mp4", "size_bytes": len(data)},
+        )
+    ).json()
+    uid, size, total = init["upload_id"], init["chunk_size"], init["total_chunks"]
+    assert total >= 3
+
+    async def put(i: int):  # type: ignore[no-untyped-def]
+        return await auth_client.put(
+            f"/api/projects/{pid}/uploads/{uid}/chunks/{i}",
+            content=data[i * size : (i + 1) * size],
+            headers={"content-type": "application/octet-stream"},
+        )
+
+    results = await asyncio.gather(*(put(i) for i in range(total)))
+    assert all(r.status_code == 200 for r in results)
+    status = (await auth_client.get(f"/api/projects/{pid}/uploads/{uid}")).json()
+    assert status["received_chunks"] == list(range(total))
+    done = await auth_client.post(f"/api/projects/{pid}/uploads/{uid}/complete")
+    assert done.status_code == 200, done.text
+    assert done.json()["asset"]["status"] == "ready"
+
+
+async def test_complete_reports_missing_chunks(
+    auth_client: AsyncClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cutpilot.core import config
+
+    monkeypatch.setattr(config.get_settings(), "upload_chunk_size", 32 * 1024)
+    pid = (await auth_client.post("/api/projects", json={"name": "missing"})).json()["id"]
+    data = make_test_video(tmp_path / "m.mp4", duration=3).read_bytes()
+    init = (
+        await auth_client.post(
+            f"/api/projects/{pid}/uploads",
+            json={"filename": "m.mp4", "mime_type": "video/mp4", "size_bytes": len(data)},
+        )
+    ).json()
+    uid, size, total = init["upload_id"], init["chunk_size"], init["total_chunks"]
+    for i in range(total):
+        if i == 1:
+            continue
+        await auth_client.put(
+            f"/api/projects/{pid}/uploads/{uid}/chunks/{i}",
+            content=data[i * size : (i + 1) * size],
+            headers={"content-type": "application/octet-stream"},
+        )
+    res = await auth_client.post(f"/api/projects/{pid}/uploads/{uid}/complete")
+    assert res.status_code == 422 and res.json()["error"]["details"]["missing_chunks"] == [1]
+    await auth_client.put(
+        f"/api/projects/{pid}/uploads/{uid}/chunks/1",
+        content=data[size : 2 * size],
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert (
+        await auth_client.post(f"/api/projects/{pid}/uploads/{uid}/complete")
+    ).status_code == 200

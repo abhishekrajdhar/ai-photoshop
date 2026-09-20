@@ -26,7 +26,7 @@ export function useCreatorMutations(projectId: string) {
   const upsertMany = useJobsStore((s) => s.upsertMany);
   const track = (res: { jobs: Job[] }) => upsertMany(res.jobs);
   const detectHighlights = useMutation({ mutationFn: (body: { count?: number; min_seconds?: number; max_seconds?: number; asset_id?: string | null }) => apiPost<{ jobs: Job[] }>(`/projects/${projectId}/highlights`, body), onSuccess: track });
-  const generateShorts = useMutation({ mutationFn: (body: { count?: number; duration: 15 | 30 | 45 | 60 | 90; caption_preset?: string; reframe?: boolean; highlight_ids?: string[]; asset_id?: string | null }) => apiPost<{ jobs: Job[] }>(`/projects/${projectId}/shorts`, body), onSuccess: track });
+  const generateShorts = useMutation({ mutationFn: (body: { count?: number; duration: 15 | 30 | 45 | 60 | 90; platform?: string; caption_preset?: string; reframe?: boolean; highlight_ids?: string[]; asset_id?: string | null; auto_render?: boolean; render_preset?: string | null }) => apiPost<{ jobs: Job[] }>(`/projects/${projectId}/shorts`, body), onSuccess: track });
   const generateThumbnails = useMutation({ mutationFn: () => apiPost<{ jobs: Job[] }>(`/projects/${projectId}/thumbnails`), onSuccess: track });
   const trackReframe = useMutation({ mutationFn: () => apiPost<{ jobs: Job[] }>(`/projects/${projectId}/reframe/track`), onSuccess: track });
   const resolveBroll = useMutation({

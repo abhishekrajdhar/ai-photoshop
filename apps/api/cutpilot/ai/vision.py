@@ -76,7 +76,7 @@ class VisionProvider:
                 operation="vision",
                 messages=[Message(role="user", content=prompt, images=images)],
                 purpose="vision",
-                max_tokens=3500,
+                max_tokens=8000,
                 meta={"batch": i, "frames": len(batch)},
             )
             # Snap returned timestamps to the frames we actually sent.

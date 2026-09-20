@@ -64,6 +64,8 @@ async def generate_shorts(
         highlight_ids=body.highlight_ids,
         caption_preset=body.caption_preset,
         reframe=body.reframe,
+        auto_render=body.auto_render,
+        render_preset=body.render_preset,
     )
     return AnalyzeResponse(jobs=[JobOut.model_validate(job).model_dump(mode="json")])
 
