@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import abc
+import json
 import math
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -246,27 +248,119 @@ class FasterWhisperTranscription(TranscriptionProvider):
 
     def __init__(self) -> None:
         try:
-            from faster_whisper import WhisperModel
+            import faster_whisper  # noqa: F401
         except ImportError as exc:
             raise AIConfigurationError(
                 "faster-whisper is not installed; pip install 'cutpilot-api[local-ai]'"
             ) from exc
         s = get_settings()
         self.model = s.whisper_model_size
-        compute = "float16" if s.whisper_device == "cuda" else "int8"
-        self._model = WhisperModel(self.model, device=s.whisper_device, compute_type=compute)
+        self.device = s.whisper_device
+        self.compute = "float16" if s.whisper_device == "cuda" else "int8"
+        self.threads = s.whisper_cpu_threads or s.ffmpeg_threads
+        self._model = None  # loaded lazily, only in in-process mode
 
-    def transcribe(
+    def command(
+        self, audio_path: Path, out: Path, *, language: str | None, duration: float
+    ) -> list[str]:
+        cmd = [
+            sys.executable,
+            "-m",
+            "cutpilot.ai.whisper_cli",
+            "--audio",
+            str(audio_path),
+            "--out",
+            str(out),
+            "--model",
+            self.model,
+            "--device",
+            self.device,
+            "--compute",
+            self.compute,
+            "--threads",
+            str(self.threads),
+            "--duration",
+            f"{duration:.3f}",
+        ]
+        if language:
+            cmd += ["--language", language]
+        return cmd
+
+    @staticmethod
+    def parse(payload: dict[str, Any]) -> tuple[str | None, list[Segment]]:
+        segments = [
+            Segment(
+                start=float(seg["start"]),
+                end=float(seg["end"]),
+                text=str(seg["text"]),
+                words=[
+                    Word(
+                        start=float(w["start"]),
+                        end=float(w["end"]),
+                        text=str(w["text"]),
+                        confidence=float(w["confidence"]),
+                    )
+                    for w in seg.get("words", [])
+                ],
+                confidence=seg.get("confidence"),
+            )
+            for seg in payload.get("segments", [])
+        ]
+        return payload.get("language"), segments
+
+    def _transcribe_subprocess(
         self,
         audio_path: Path,
         *,
-        language: str | None = None,
-        on_progress: Callable[[float], None] | None = None,
-    ) -> TranscriptResult:
-        import time
+        language: str | None,
+        duration: float,
+        on_progress: Callable[[float], None] | None,
+    ) -> tuple[str | None, list[Segment]]:
+        import os
 
-        started = time.perf_counter()
-        duration = _audio_duration(audio_path)
+        env = dict(os.environ)
+        if self.threads > 0:
+            env.setdefault("OMP_NUM_THREADS", str(self.threads))
+        with tempfile.TemporaryDirectory(prefix="whisper-") as tmp:
+            out = Path(tmp) / "transcript.json"
+            proc = subprocess.Popen(
+                self.command(audio_path, out, language=language, duration=duration),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                if on_progress and line.startswith("progress "):
+                    try:
+                        on_progress(float(line.split()[1]))
+                    except (IndexError, ValueError):
+                        pass
+            proc.wait()
+            if proc.returncode != 0:
+                err = proc.stderr.read()[-800:] if proc.stderr else ""
+                hint = " (out of memory?)" if proc.returncode in (-9, 137) else ""
+                raise AIProviderError(
+                    f"faster-whisper exited with {proc.returncode}{hint}: {err.strip()}"
+                )
+            return self.parse(json.loads(out.read_text(encoding="utf-8")))
+
+    def _transcribe_in_process(
+        self,
+        audio_path: Path,
+        *,
+        language: str | None,
+        duration: float,
+        on_progress: Callable[[float], None] | None,
+    ) -> tuple[str | None, list[Segment]]:
+        if self._model is None:
+            from faster_whisper import WhisperModel
+
+            kw = {"cpu_threads": self.threads, "num_workers": 1} if self.threads > 0 else {}
+            self._model = WhisperModel(
+                self.model, device=self.device, compute_type=self.compute, **kw
+            )
         seg_iter, info = self._model.transcribe(
             str(audio_path), language=language, word_timestamps=True, vad_filter=True
         )
@@ -292,10 +386,31 @@ class FasterWhisperTranscription(TranscriptionProvider):
             )
             if on_progress and duration:
                 on_progress(min(0.99, seg.end / duration))
+        return info.language, segments
+
+    def transcribe(
+        self,
+        audio_path: Path,
+        *,
+        language: str | None = None,
+        on_progress: Callable[[float], None] | None = None,
+    ) -> TranscriptResult:
+        import time
+
+        started = time.perf_counter()
+        duration = _audio_duration(audio_path) or 0.0
+        run = (
+            self._transcribe_subprocess
+            if get_settings().whisper_subprocess
+            else self._transcribe_in_process
+        )
+        detected, segments = run(
+            audio_path, language=language, duration=duration, on_progress=on_progress
+        )
         return TranscriptResult(
             provider=self.name,
             model=self.model,
-            language=info.language,
+            language=detected,
             text=" ".join(s.text for s in segments),
             segments=segments,
             latency_ms=int((time.perf_counter() - started) * 1000),

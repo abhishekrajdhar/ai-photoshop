@@ -69,7 +69,9 @@ class LocalStorage(Storage):
     def as_local_file(self, key: str, suffix: str = "") -> Iterator[Path]:
         yield self._path(key)
 
-    def signed_url(self, key: str, *, expires_in: int | None = None, filename: str | None = None) -> str | None:
+    def signed_url(
+        self, key: str, *, expires_in: int | None = None, filename: str | None = None
+    ) -> str | None:
         return None
 
     def open_stream(self, key: str, start: int = 0, end: int | None = None) -> Iterator[bytes]:

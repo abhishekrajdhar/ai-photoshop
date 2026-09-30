@@ -25,7 +25,9 @@ class Storage(abc.ABC):
     """Minimal interface used by the API and workers."""
 
     @abc.abstractmethod
-    def put_file(self, key: str, local_path: str | Path, content_type: str | None = None) -> None: ...
+    def put_file(
+        self, key: str, local_path: str | Path, content_type: str | None = None
+    ) -> None: ...
 
     @abc.abstractmethod
     def put_bytes(self, key: str, data: bytes, content_type: str | None = None) -> None: ...
@@ -55,7 +57,9 @@ class Storage(abc.ABC):
         """Yield a local path for the object (downloading to WORK_DIR if necessary)."""
 
     @abc.abstractmethod
-    def signed_url(self, key: str, *, expires_in: int | None = None, filename: str | None = None) -> str | None:
+    def signed_url(
+        self, key: str, *, expires_in: int | None = None, filename: str | None = None
+    ) -> str | None:
         """Return a time-limited direct URL, or None when the API must proxy the bytes."""
 
     @abc.abstractmethod

@@ -10,9 +10,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
-from cutpilot.ai.providers.anthropic_provider import AnthropicProvider
 from cutpilot.ai.providers.base import LLMProvider, LLMResponse, Message, ToolSpec
-from cutpilot.ai.providers.openai_provider import OpenAIProvider
 from cutpilot.ai.usage import log_usage
 from cutpilot.core.config import AIProviderName, get_settings
 from cutpilot.core.errors import AIConfigurationError, AIProviderError
@@ -27,8 +25,16 @@ def _provider(name: AIProviderName) -> LLMProvider | None:
     settings = get_settings()
     if not settings.provider_key(name):
         return None
+    # SDKs are imported on first use: the API process never calls a model directly and the
+    # anthropic+openai packages cost ~35 MB of resident memory.
     try:
-        return OpenAIProvider() if name == "openai" else AnthropicProvider()
+        if name == "openai":
+            from cutpilot.ai.providers.openai_provider import OpenAIProvider
+
+            return OpenAIProvider()
+        from cutpilot.ai.providers.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider()
     except AIProviderError:
         return None
 

@@ -16,6 +16,7 @@ import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cutpilot.core.config import get_settings
 from cutpilot.core.errors import MediaProcessingError
 from cutpilot.render.captions import (
     Cue,
@@ -28,6 +29,26 @@ from cutpilot.render.captions import (
 )
 from cutpilot.render.presets import ExportPreset
 from cutpilot.timeline.model import Clip, Effect, TimelineDocument, Track
+
+_X264_PRESETS = [
+    "ultrafast",
+    "superfast",
+    "veryfast",
+    "faster",
+    "fast",
+    "medium",
+    "slow",
+    "slower",
+    "veryslow",
+]
+
+
+def encoder_preset(preset: str) -> str:
+    """In low-memory mode never go slower than `veryfast`: slower x264 presets use bigger
+    lookahead/reference buffers, which is what pushes a 512 MB container over the edge."""
+    if not get_settings().ffmpeg_low_memory or preset not in _X264_PRESETS:
+        return preset
+    return preset if _X264_PRESETS.index(preset) <= _X264_PRESETS.index("veryfast") else "veryfast"
 
 
 @dataclass
@@ -92,6 +113,7 @@ class Compiler:
         self.input_index: dict[str, int] = {}
         self.filters: list[str] = []
         self.aux: list[Path] = []
+        self.companion_ids: set[str] = set()  # audio clips carried with the video stream
         self.warnings: list[str] = []
         self._label = 0
         self.W, self.H = preset.width, preset.height
@@ -215,8 +237,14 @@ class Compiler:
 
     def video_segment(
         self, clip: Clip, *, head_extend: float = 0.0, tail_extend: float = 0.0
-    ) -> tuple[str, float]:
-        """Return (label, duration) of a fitted video segment for a primary-track clip."""
+    ) -> tuple[str, str, float]:
+        """Return (video label, audio label, duration) of a fitted primary-track segment.
+
+        Video and audio are produced as a *pair* and later joined with a single
+        `concat=v=1:a=1`, so ffmpeg advances both in lockstep. Placing audio with adelay/apad
+        instead forces the demuxer to read the whole source ahead, and every decoded video frame
+        of the later clips piles up in the concat inputs (713 MB vs ~200 MB for a 30 s render).
+        """
         src = self.sources.get(clip.asset_id or "")
         if src is None:
             return self.gap_segment(clip.duration)
@@ -251,21 +279,53 @@ class Compiler:
         chain += self.effect_filters(clip, seg_dur)
         chain.append("format=yuv420p")
         self.filters.append(chain[0] + ",".join(chain[1:]) + f"[{lab}]")
-        return lab, seg_dur
+        return lab, self.companion_audio(clip, si, so, seg_dur), seg_dur
 
-    def gap_segment(self, duration: float) -> tuple[str, float]:
+    def linked_audio(self, clip: Clip) -> Clip | None:
+        """The audio clip paired with a primary-track video clip (either side may hold the link)."""
+        for track in self.doc.tracks_of_kind("audio"):
+            for c in track.clips:
+                if c.id == clip.linked_clip_id or (c.linked_clip_id == clip.id and c.id):
+                    return None if track.muted else c
+        return None
+
+    def companion_audio(self, clip: Clip, si: float, so: float, seg_dur: float) -> str:
+        """Audio segment that travels with a video segment: the linked audio clip's processing over
+        the same source range, or exact-length silence when there is none (or it is muted)."""
+        audio = self.linked_audio(clip)
+        src = self.sources.get(clip.asset_id or "")
+        if audio is None or audio.muted or src is None or not src.has_audio:
+            return self.silence_segment(seg_dur)
+        self.companion_ids.add(audio.id)
+        idx = self.source_input(clip.asset_id or "")
+        chain = [f"atrim=start={_f(si)}:end={_f(so)}", *self._audio_chain(audio, seg_dur)]
+        chain += [f"apad=whole_dur={_f(seg_dur)}", f"atrim=0:{_f(seg_dur)}"]
+        lab = self.label("a")
+        self.filters.append(f"[{idx}:a]" + ",".join(chain) + f"[{lab}]")
+        return lab
+
+    def silence_segment(self, duration: float) -> str:
+        lab = self.label("a")
+        self.filters.append(
+            f"anullsrc=r=48000:cl=stereo,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            f"atrim=0:{_f(duration)}[{lab}]"
+        )
+        return lab
+
+    def gap_segment(self, duration: float) -> tuple[str, str, float]:
         cw, ch = self.canvas()
         lab = self.label()
         self.filters.append(
             f"color=c={self.doc.settings.background}:s={cw}x{ch}:r={_f(self.fps)}:d={_f(duration)},format=yuv420p[{lab}]"
         )
-        return lab, duration
+        return lab, self.silence_segment(duration), duration
 
-    def build_base_video(self) -> str:
-        """Primary video track → single stream with gaps filled, transitions applied."""
+    def build_base_video(self) -> tuple[str, str]:
+        """Primary video track → one video stream and its lockstep audio, gaps filled,
+        transitions applied. Returns (video label, audio label)."""
         track = self.doc.primary_video_track()
         clips = [c for c in track.sorted_clips() if not track.hidden]
-        segments: list[tuple[str, float, Clip | None]] = []
+        segments: list[tuple[str, str, float, Clip | None]] = []
         t = 0.0
         # Crossfade handle allocation: consecutive clips each give half the transition from their handles.
         for i, clip in enumerate(clips):
@@ -278,38 +338,40 @@ class Compiler:
                 head = prev.transition_out.duration / 2
             if nxt is not None and self._xfade_ok(clip, nxt):
                 tail = clip.transition_out.duration / 2
-            lab, dur = self.video_segment(clip, head_extend=head, tail_extend=tail)
-            segments.append((lab, dur, clip))
+            vlab, alab, dur = self.video_segment(clip, head_extend=head, tail_extend=tail)
+            segments.append((vlab, alab, dur, clip))
             t = clip.timeline_end
         if not segments:
             raise CompileError("No video clips on the primary track")
-        # Combine: runs joined by concat, crossfades via xfade, dips via fade filters.
-        acc_lab, acc_dur, _ = segments[0]
-        pending: list[str] = [acc_lab]
+        # Combine: runs joined by a paired concat, crossfades via xfade + acrossfade, dips via fades.
+        acc_v, acc_a, acc_dur, _ = segments[0]
+        pending: list[tuple[str, str]] = [(acc_v, acc_a)]
         pending_dur = acc_dur
 
         def flush_concat() -> None:
-            nonlocal acc_lab, pending
+            nonlocal acc_v, acc_a, pending
             if len(pending) > 1:
-                lab = self.label()
+                v, a = self.label(), self.label("a")
                 self.filters.append(
-                    "".join(f"[{p}]" for p in pending) + f"concat=n={len(pending)}:v=1:a=0[{lab}]"
+                    "".join(f"[{pv}][{pa}]" for pv, pa in pending)
+                    + f"concat=n={len(pending)}:v=1:a=1[{v}][{a}]"
                 )
-                acc_lab = lab
+                acc_v, acc_a = v, a
             else:
-                acc_lab = pending[0]
+                acc_v, acc_a = pending[0]
 
         for i in range(1, len(segments)):
-            prev_clip = segments[i - 1][2]
-            lab, dur, clip = segments[i]
+            prev_clip = segments[i - 1][3]
+            vlab, alab, dur, clip = segments[i]
             if prev_clip is not None and clip is not None and self._xfade_ok(prev_clip, clip):
                 flush_concat()
                 d = prev_clip.transition_out.duration
-                out = self.label()
+                v, a = self.label(), self.label("a")
                 self.filters.append(
-                    f"[{acc_lab}][{lab}]xfade=transition=fade:duration={_f(d)}:offset={_f(pending_dur - d)}[{out}]"
+                    f"[{acc_v}][{vlab}]xfade=transition=fade:duration={_f(d)}:offset={_f(pending_dur - d)}[{v}]"
                 )
-                pending = [out]
+                self.filters.append(f"[{acc_a}][{alab}]acrossfade=d={_f(d)}:c1=tri:c2=tri[{a}]")
+                pending = [(v, a)]
                 pending_dur = pending_dur + dur - d
                 continue
             if (
@@ -319,17 +381,18 @@ class Compiler:
             ):
                 d = prev_clip.transition_out.duration / 2
                 color = "white" if prev_clip.transition_out.type == "dip_to_white" else "black"
-                a, b = self.label(), self.label()
+                fa, fb = self.label(), self.label()
+                pv, pa = pending[-1]
                 self.filters.append(
-                    f"[{pending[-1]}]fade=t=out:st={_f(max(0.0, segments[i - 1][1] - d))}:d={_f(d)}:color={color}[{a}]"
+                    f"[{pv}]fade=t=out:st={_f(max(0.0, segments[i - 1][2] - d))}:d={_f(d)}:color={color}[{fa}]"
                 )
-                pending[-1] = a
-                self.filters.append(f"[{lab}]fade=t=in:st=0:d={_f(d)}:color={color}[{b}]")
-                lab = b
-            pending.append(lab)
+                pending[-1] = (fa, pa)
+                self.filters.append(f"[{vlab}]fade=t=in:st=0:d={_f(d)}:color={color}[{fb}]")
+                vlab = fb
+            pending.append((vlab, alab))
             pending_dur += dur
         flush_concat()
-        return acc_lab
+        return acc_v, acc_a
 
     def _xfade_ok(self, a: Clip, b: Clip) -> bool:
         """Crossfade needs media handles on both sides so the timeline duration is preserved."""
@@ -471,14 +534,9 @@ class Compiler:
         return out
 
     # ── audio ──────────────────────────────────────────────────────────────
-    def audio_clip(self, clip: Clip) -> str | None:
-        src = self.sources.get(clip.asset_id or "")
-        if src is None or not src.has_audio or clip.muted:
-            return None
-        idx = self.source_input(clip.asset_id or "")
-        lab = self.label("a")
+    def _audio_chain(self, clip: Clip, seg_dur: float) -> list[str]:
+        """Per-clip audio processing (format, loop, tempo, effects, gain, fades) — no placement."""
         chain = [
-            f"atrim=start={_f(clip.source_in)}:end={_f(clip.source_out)}",
             "asetpts=PTS-STARTPTS",
             "aresample=48000",
             "aformat=sample_fmts=fltp:channel_layouts=stereo",
@@ -487,14 +545,14 @@ class Compiler:
             samples = int(max(1.0, clip.source_out - clip.source_in) * 48000)
             chain += [
                 f"aloop=loop=-1:size={min(samples, 2_000_000_000)}",
-                f"atrim=0:{_f(clip.duration)}",
+                f"atrim=0:{_f(seg_dur)}",
                 "asetpts=PTS-STARTPTS",
             ]
         chain += self._atempo(clip.speed)
         for fx in clip.effects:
             if not fx.enabled:
                 continue
-            en = self._enable(fx, clip.duration)
+            en = self._enable(fx, seg_dur)
             if fx.type == "audio_gain":
                 chain.append(f"volume={_f(float(fx.params.get('gain_db', 0.0)))}dB{en}")
             elif fx.type == "noise_reduction":
@@ -511,13 +569,26 @@ class Compiler:
             chain.append(f"afade=t=in:st=0:d={_f(clip.fade_in)}")
         if clip.fade_out > 0:
             chain.append(
-                f"afade=t=out:st={_f(max(0.0, clip.duration - clip.fade_out))}:d={_f(clip.fade_out)}"
+                f"afade=t=out:st={_f(max(0.0, seg_dur - clip.fade_out))}:d={_f(clip.fade_out)}"
             )
-        chain.append(f"atrim=0:{_f(clip.duration)}")
-        delay_ms = round(clip.timeline_start * 1000)
-        chain.append(f"adelay={delay_ms}:all=1")
-        chain.append(f"apad=whole_dur={_f(self.duration)}")
-        chain.append(f"atrim=0:{_f(self.duration)}")
+        return chain
+
+    def audio_clip(self, clip: Clip) -> str | None:
+        """A free-standing audio clip (music, voice-over, unlinked dialogue) placed on the
+        timeline with adelay/apad. Linked dialogue never comes through here — see companion_audio."""
+        src = self.sources.get(clip.asset_id or "")
+        if src is None or not src.has_audio or clip.muted:
+            return None
+        idx = self.source_input(clip.asset_id or "")
+        lab = self.label("a")
+        chain = [
+            f"atrim=start={_f(clip.source_in)}:end={_f(clip.source_out)}",
+            *self._audio_chain(clip, clip.duration),
+            f"atrim=0:{_f(clip.duration)}",
+            f"adelay={round(clip.timeline_start * 1000)}:all=1",
+            f"apad=whole_dur={_f(self.duration)}",
+            f"atrim=0:{_f(self.duration)}",
+        ]
         self.filters.append(f"[{idx}:a]" + ",".join(chain) + f"[{lab}]")
         return lab
 
@@ -536,14 +607,16 @@ class Compiler:
         out.append(f"atempo={_f(s)}")
         return out
 
-    def build_audio(self) -> str:
-        dialogue: list[str] = []
+    def build_audio(self, base_audio: str) -> str:
+        dialogue: list[str] = [base_audio]
         ducked: list[str] = []
         plain_music: list[str] = []
         for track in self.doc.tracks_of_kind("audio"):
             if track.muted:
                 continue
             for clip in track.sorted_clips():
+                if clip.id in self.companion_ids:
+                    continue  # already carried by the primary video stream
                 lab = self.audio_clip(clip)
                 if lab is None:
                     continue
@@ -553,9 +626,7 @@ class Compiler:
                     plain_music.append(lab)
                 else:
                     dialogue.append(lab)
-        silence = self.label("a")
-        self.filters.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{_f(self.duration)}[{silence}]")
-        dlg = self._amix([*dialogue, silence])
+        dlg = self._amix(dialogue)
         g = self.doc.settings.audio or {}
         if (
             g.get("noise_reduction", {}).get("enabled")
@@ -598,7 +669,8 @@ class Compiler:
             mixed = ln
         out = "aout"
         self.filters.append(
-            f"[{mixed}]atrim=0:{_f(self.duration)},asetpts=PTS-STARTPTS,aresample=48000[{out}]"
+            f"[{mixed}]apad=whole_dur={_f(self.duration)},atrim=0:{_f(self.duration)},"
+            f"asetpts=PTS-STARTPTS,aresample=48000[{out}]"
         )
         return out
 
@@ -614,14 +686,14 @@ class Compiler:
 
     # ── assemble ───────────────────────────────────────────────────────────
     def compile(self) -> RenderPlan:
-        base = self.build_base_video()
+        base, base_audio = self.build_base_video()
         base = self.apply_reframe(base)
         base = self.apply_overlays(base)
         base = self.apply_captions(base)
         self.filters.append(
             f"[{base}]trim=0:{_f(self.duration)},setpts=PTS-STARTPTS,format=yuv420p[vout]"
         )
-        aout = self.build_audio()
+        aout = self.build_audio(base_audio)
         script = self.work / "filter_complex.txt"
         script.write_text(";\n".join(self.filters) + "\n", encoding="utf-8")
         p = self.preset
@@ -633,7 +705,7 @@ class Compiler:
             "-c:v",
             p.codec,
             "-preset",
-            p.preset,
+            encoder_preset(p.preset),
             "-crf",
             str(p.crf),
             "-maxrate",

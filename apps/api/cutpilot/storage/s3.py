@@ -26,7 +26,10 @@ class S3Storage(Storage):
             region_name=s.s3_region,
             aws_access_key_id=s.s3_access_key,
             aws_secret_access_key=s.s3_secret_key,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path" if s.s3_force_path_style else "auto"}),
+            config=Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "path" if s.s3_force_path_style else "auto"},
+            ),
         )
         self._ensure_bucket()
 
@@ -77,7 +80,9 @@ class S3Storage(Storage):
     def as_local_file(self, key: str, suffix: str = "") -> Iterator[Path]:
         work = Path(get_settings().work_dir)
         work.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=work, suffix=suffix or Path(key).suffix, delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            dir=work, suffix=suffix or Path(key).suffix, delete=False
+        ) as tmp:
             path = Path(tmp.name)
         try:
             self.client.download_file(self.bucket, key, str(path))
@@ -85,11 +90,15 @@ class S3Storage(Storage):
         finally:
             path.unlink(missing_ok=True)
 
-    def signed_url(self, key: str, *, expires_in: int | None = None, filename: str | None = None) -> str | None:
+    def signed_url(
+        self, key: str, *, expires_in: int | None = None, filename: str | None = None
+    ) -> str | None:
         params: dict[str, str] = {"Bucket": self.bucket, "Key": key}
         if filename:
             params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
-        return self.client.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_in or self.ttl)  # type: ignore[no-any-return]
+        return self.client.generate_presigned_url(
+            "get_object", Params=params, ExpiresIn=expires_in or self.ttl
+        )  # type: ignore[no-any-return]
 
     def open_stream(self, key: str, start: int = 0, end: int | None = None) -> Iterator[bytes]:
         rng = f"bytes={start}-" if end is None else f"bytes={start}-{end}"

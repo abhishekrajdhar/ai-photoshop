@@ -43,10 +43,12 @@ dev = [
     "types-aiofiles",
 ]
 # Lightweight local transcription (CPU-friendly, no torch).
-local-transcription = ["faster-whisper>=1.0"]
+# av<19: PyAV 19 dropped `metadata_errors`, which faster-whisper 1.2.x passes to av.open().
+local-transcription = ["faster-whisper>=1.0", "av>=12,<19"]
 # Full local AI adapters (heavy, GPU recommended). Install on GPU workers only.
 local-ai = [
     "faster-whisper>=1.0",
+    "av>=12,<19",
     "whisperx>=3.1",
     "pyannote.audio>=3.3",
     "torch>=2.3",

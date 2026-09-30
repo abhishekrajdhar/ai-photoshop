@@ -41,6 +41,15 @@ def job_task(fn: Callable[..., dict[str, Any] | None]) -> Callable[..., dict[str
                 return None
             if job.status == "CANCELLED":
                 return None
+            if job.status == "FAILED":
+                # acks_late + reject_on_worker_lost redeliver a task whose worker died (OOM).
+                # Give it one more go, then leave it FAILED rather than crash-looping.
+                from cutpilot.workers.maintenance import ORPHAN_ERROR
+
+                if job.error != ORPHAN_ERROR or job.retry_count >= job.max_retries:
+                    return None
+                job.retry_count += 1
+                log.warning("job_redelivered_after_worker_loss", job_id=job_id, type=job.type)
             ctx = JobContext(session, job)
             ctx.start(celery_task_id=getattr(self.request, "id", None))
             try:

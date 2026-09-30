@@ -25,9 +25,20 @@ PY
 echo "[all-in-one] running migrations…"
 alembic upgrade head
 echo "[all-in-one] starting workers…"
-celery -A cutpilot.workers.celery_app:celery_app worker --loglevel="${LOG_LEVEL:-INFO}" -Q media,render,ai \
-  --concurrency="${WORKER_CONCURRENCY:-2}" --max-tasks-per-child=25 -n "all-in-one@%h" &
-WORKER_PID=$!
-trap 'kill $WORKER_PID 2>/dev/null || true' EXIT
+# prefork (default) isolates tasks; WORKER_POOL=threads = one process, for 512 MB hosts
+POOL="${WORKER_POOL:-prefork}"; POOL_ARGS=()
+[ "$POOL" = "prefork" ] && POOL_ARGS=(--max-tasks-per-child=25)
+# Supervised: if the worker is OOM-killed, fail the jobs it was running and start a fresh one.
+(
+  while true; do
+    celery -A cutpilot.workers.celery_app:celery_app worker --loglevel="${LOG_LEVEL:-INFO}" -Q media,render,ai \
+      -P "$POOL" --concurrency="${WORKER_CONCURRENCY:-2}" "${POOL_ARGS[@]}" -n "all-in-one@%h" && code=0 || code=$?
+    echo "[all-in-one] worker exited (code $code); failing orphaned jobs and restarting in 3s"
+    python -m cutpilot.workers.maintenance fail-orphans || true
+    sleep 3
+  done
+) &
+SUPERVISOR_PID=$!
+trap 'kill $SUPERVISOR_PID 2>/dev/null || true; pkill -f "celery -A cutpilot" 2>/dev/null || true' EXIT
 echo "[all-in-one] starting api on :${PORT:-8000}"
 exec uvicorn cutpilot.main:app --host 0.0.0.0 --port "${PORT:-8000}" --workers "${UVICORN_WORKERS:-1}" --proxy-headers --forwarded-allow-ips="*"

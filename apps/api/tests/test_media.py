@@ -232,3 +232,28 @@ async def test_complete_reports_missing_chunks(
     assert (
         await auth_client.post(f"/api/projects/{pid}/uploads/{uid}/complete")
     ).status_code == 200
+
+
+def test_apply_thread_limits_caps_decoder_filters_and_encoder() -> None:
+    from cutpilot.media.ffmpeg import apply_thread_limits
+
+    args = ["-i", "in.mp4", "-c:v", "libx264", "out.mp4"]
+    assert apply_thread_limits(args, 0) == args
+    capped = apply_thread_limits(args, 1)
+    assert capped[:6] == ["-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1"]
+    assert capped[-3:] == ["-threads", "1", "out.mp4"]
+    # idempotent for an explicit encoder cap; works for "-f null -" style outputs too
+    assert apply_thread_limits(capped[6:], 1)[-3:] == ["-threads", "1", "out.mp4"]
+    assert apply_thread_limits(["-i", "a.wav", "-f", "null", "-"], 2)[-3:] == ["-threads", "2", "-"]
+
+
+def test_encoder_preset_capped_in_low_memory_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cutpilot.core import config
+    from cutpilot.render.compiler import encoder_preset
+
+    monkeypatch.setattr(config.get_settings(), "ffmpeg_low_memory", False)
+    assert encoder_preset("medium") == "medium"
+    monkeypatch.setattr(config.get_settings(), "ffmpeg_low_memory", True)
+    assert encoder_preset("medium") == "veryfast"
+    assert encoder_preset("ultrafast") == "ultrafast"
+    assert encoder_preset("p4") == "p4"  # non-x264 preset names pass through

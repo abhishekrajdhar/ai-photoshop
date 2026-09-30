@@ -180,3 +180,76 @@ def test_router_reports_missing_configuration(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(router, "available_providers", lambda: [])
     with pytest.raises(AIConfigurationError):
         router.AIRouter(None).complete(operation="x", messages=[Message(role="user", content="hi")])
+
+
+def test_faster_whisper_subprocess_roundtrip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The provider drives a child process and parses its JSON; here the child is a stand-in
+    script so the test doesn't need the faster-whisper wheel or a model download."""
+    import json
+    import sys
+
+    from cutpilot.ai import transcription
+    from cutpilot.core import config
+
+    monkeypatch.setattr(config.get_settings(), "whisper_subprocess", True)
+    monkeypatch.setattr(config.get_settings(), "whisper_cpu_threads", 1)
+    monkeypatch.setattr(transcription, "_audio_duration", lambda _p: 4.0)
+    provider = transcription.FasterWhisperTranscription.__new__(
+        transcription.FasterWhisperTranscription
+    )
+    provider.model, provider.device, provider.compute, provider.threads = "tiny", "cpu", "int8", 1
+    provider._model = None
+    real_cmd = provider.command(
+        tmp_path / "a.wav", tmp_path / "o.json", language="en", duration=4.0
+    )
+    assert real_cmd[1:3] == ["-m", "cutpilot.ai.whisper_cli"] and "--language" in real_cmd
+
+    payload = {
+        "language": "en",
+        "segments": [
+            {
+                "start": 0.0,
+                "end": 1.5,
+                "text": "Hello there",
+                "confidence": 0.9,
+                "words": [
+                    {"start": 0.0, "end": 0.5, "text": "Hello", "confidence": 0.95},
+                    {"start": 0.6, "end": 1.5, "text": "there", "confidence": 0.9},
+                ],
+            },
+            {"start": 2.0, "end": 3.9, "text": "General Kenobi", "confidence": 0.8, "words": []},
+        ],
+    }
+    fake = tmp_path / "fake_whisper.py"
+    fake.write_text(
+        "import json,sys\nout=sys.argv[sys.argv.index('--out')+1]\n"
+        "print('progress 0.375', flush=True)\nprint('progress 0.975', flush=True)\n"
+        f"open(out,'w').write(json.dumps({json.dumps(payload)}))\n"
+    )
+    monkeypatch.setattr(
+        provider,
+        "command",
+        lambda audio, out, *, language, duration: [sys.executable, str(fake), "--out", str(out)],
+    )
+    seen: list[float] = []
+    result = provider.transcribe(tmp_path / "a.wav", language="en", on_progress=seen.append)
+    assert result.provider == "faster_whisper" and result.language == "en"
+    assert [s.text for s in result.segments] == ["Hello there", "General Kenobi"]
+    assert result.segments[0].words[1].text == "there" and result.segments[0].confidence == 0.9
+    assert seen == [0.375, 0.975]
+
+    # a killed child (OOM) surfaces as a provider error with a hint, not a silent empty transcript
+    fake.write_text("import os,signal\nos.kill(os.getpid(), signal.SIGKILL)\n")
+    from cutpilot.core.errors import AIProviderError
+
+    with pytest.raises(AIProviderError, match="out of memory"):
+        provider.transcribe(tmp_path / "a.wav")
+
+
+def test_whisper_cli_parses_arguments_before_importing_model() -> None:
+    from cutpilot.ai import whisper_cli
+
+    with pytest.raises(SystemExit):
+        whisper_cli.main(["--model", "tiny"])  # --audio/--out are required

@@ -109,7 +109,9 @@ def test_compiler_generates_expected_graph(tmp_path: Path) -> None:
     graph = plan.filter_script.read_text()
     assert plan.duration == 54.0 and (plan.width, plan.height) == (1080, 1920)
     assert graph.count("]trim=start=") == 3  # three primary video segments
-    assert "concat=n=3:v=1:a=0" in graph
+    # audio rides with the video in one lockstep concat (bounded ffmpeg memory); only the
+    # free-standing music clip is placed with adelay
+    assert "concat=n=3:v=1:a=1" in graph and graph.count("adelay=") == 1
     assert "sendcmd=f=" in graph and "crop@reframe=1080:1920" in graph
     assert "lerp(" in (tmp_path / "work" / "reframe_cmds.txt").read_text()
     assert "eval=frame" in graph  # zoom

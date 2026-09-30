@@ -139,6 +139,23 @@ def ffprobe(path: str | Path) -> MediaInfo:
     )
 
 
+def apply_thread_limits(args: list[str], threads: int) -> list[str]:
+    """Cap decoder, filter and encoder threads.
+
+    `-threads` before the first `-i` applies to decoders (and is inherited as the default for
+    everything after), `-filter_threads` to the filter graph, and a final `-threads` right before
+    the output target to the encoder. Returns a new list; `threads <= 0` means "leave ffmpeg alone".
+    """
+    if threads <= 0 or not args:
+        return list(args)
+    t = str(threads)
+    head = ["-threads", t, "-filter_threads", t, "-filter_complex_threads", t]
+    out = list(args)
+    if out[-1] != t or len(out) < 2 or out[-2] != "-threads":
+        out = [*out[:-1], "-threads", t, out[-1]]
+    return head + out
+
+
 def run_ffmpeg(
     args: list[str],
     *,
@@ -158,7 +175,7 @@ def run_ffmpeg(
         "error",
         "-progress",
         "pipe:1",
-        *args,
+        *apply_thread_limits(args, settings.ffmpeg_threads),
     ]
     cmd_str = " ".join(shlex.quote(c) for c in cmd)
     log.debug("ffmpeg_run", cmd=cmd_str)
@@ -199,7 +216,13 @@ def run_ffmpeg(
 def run_ffmpeg_capture(args: list[str], timeout: int = 600) -> str:
     """Run ffmpeg and return stderr (for filters like silencedetect that report via logs)."""
     settings = get_settings()
-    cmd = [settings.ffmpeg_path, "-hide_banner", "-nostdin", "-y", *args]
+    cmd = [
+        settings.ffmpeg_path,
+        "-hide_banner",
+        "-nostdin",
+        "-y",
+        *apply_thread_limits(args, settings.ffmpeg_threads),
+    ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as exc:

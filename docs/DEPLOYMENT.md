@@ -63,6 +63,32 @@ the workers in **one** container with a persistent disk at `/data`. Use it for a
 deployment on Render, Railway or Fly when you don't have S3/R2 yet; move to `render.yaml` +
 `STORAGE_PROVIDER=s3` to scale the API and workers independently.
 
+### Optional: fitting into 512 MB (Render free, small Fly/Railway boxes)
+
+The root `Dockerfile` defaults to **full quality** (all cores, preset-defined x264 speed, `small` whisper model,
+two prefork workers; plan for ≥ 2 GB RAM). On a 512 MB host set these instead — verified under a hard 512 MB cgroup
+limit for ingest → transcription → analysis → chat → 16:9 render; vertical 1080×1920 renders still need more memory:
+
+| Setting | Effect | Why |
+|---|---|---|
+| `WORKER_POOL=threads`, `WORKER_CONCURRENCY=1` | one worker process (~135 MB) | prefork = parent + child ≈ 250 MB idle |
+| `FFMPEG_THREADS=1` | `-threads 1` for decoders, filters and encoders | libx264 allocates per-thread buffers for every visible core; unlimited = OOM-kill |
+| `FFMPEG_LOW_MEMORY=true` | `ultrafast` proxies, export presets capped at `veryfast` | ~77 MB vs ~250 MB for a 720p encode |
+| `WHISPER_MODEL_SIZE=tiny` (build arg + env; the image bakes the model into `HF_HOME=/app/.hf-cache`) | int8 tiny | `base`/`small` won't fit next to the API |
+| `WHISPER_SUBPROCESS=true` (default everywhere) | faster-whisper runs in a child process per job | its ~200 MB is returned to the OS afterwards instead of staying in the worker |
+| supervised worker (`start-all.sh`) | restarts Celery if it is killed and marks its RUNNING jobs FAILED | an OOM-kill can't leave the UI waiting forever |
+| `WORKER_MAX_RSS_MB=170` | worker recycles itself after a task once its RSS passes the limit (threads-pool equivalent of `--max-memory-per-child`) | keeps ~300 MB free for the next ffmpeg/whisper child |
+| render graph: audio concatenated *with* the video (`concat=v=1:a=1`) | applies everywhere, not only low-memory mode | the old delay-and-mix audio graph made ffmpeg read the whole source ahead: 713 MB vs ~200 MB for a 30 s render |
+| `MALLOC_ARENA_MAX=2` | fewer glibc arenas in the threaded worker | avoids RSS creep between jobs |
+
+Measured idle ≈ 210 MB (API + worker + Redis); peak ≈ 470 MB during transcription. `WHISPER_SUBPROCESS`, the supervised
+worker and the lockstep audio graph are on in every profile. Free-tier CPUs (Render: 0.1 vCPU) make a one-minute clip take
+several minutes to ingest/transcribe/render; the pipeline is the same, only slower.
+
+**Render free plan:** create a *Web Service* (Docker, `./Dockerfile`, plan `free`) — no Blueprint, because
+`render.yaml` declares worker services, which need a paid plan. Set the same secrets as the Space below plus
+`PORT=10000`. The instance sleeps after 15 min idle (first request ~1 min) and its disk is ephemeral.
+
 ## Hugging Face Space (free single-container backend)
 
 A free Docker Space (2 vCPU, 16 GB RAM) can host the all-in-one backend:

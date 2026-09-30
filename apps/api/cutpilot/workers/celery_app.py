@@ -42,3 +42,39 @@ celery_app.conf.update(
         "cutpilot.workers.tasks.render",
     ),
 )
+
+
+# ── memory watchdog (threads/solo pools) ─────────────────────────────────────
+# Celery's --max-memory-per-child only exists for prefork. On 512 MB hosts the single worker
+# process slowly grows (OpenCV, PySceneDetect, SDKs, heap fragmentation) until the next ffmpeg
+# child pushes the container over the limit. After each task, if RSS exceeds WORKER_MAX_RSS_MB
+# we ask for a warm shutdown; the all-in-one supervisor starts a fresh ~100 MB worker.
+
+
+def _rss_mb() -> float:
+    try:
+        with open("/proc/self/status", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except OSError:
+        pass
+    return 0.0
+
+
+if settings.worker_max_rss_mb > 0:
+    from celery.signals import task_postrun
+
+    @task_postrun.connect(weak=False)
+    def _recycle_if_bloated(**_: object) -> None:
+        import os
+        import signal
+
+        import structlog
+
+        rss = _rss_mb()
+        if rss > settings.worker_max_rss_mb:
+            structlog.get_logger().warning(
+                "worker_recycle", rss_mb=round(rss), limit_mb=settings.worker_max_rss_mb
+            )
+            os.kill(os.getpid(), signal.SIGTERM)  # warm shutdown: finish acks, then exit 0

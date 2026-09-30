@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     transcription_provider: Literal["openai", "whisperx", "faster_whisper"] = "openai"
     whisper_model_size: str = "base"
     whisper_device: str = "cpu"
+    # Run faster-whisper in a short-lived child process so its ~200 MB (model + CTranslate2 arena)
+    # is returned to the OS after every job instead of staying resident in the worker.
+    whisper_subprocess: bool = True
+    whisper_cpu_threads: int = 0  # 0 = FFMPEG_THREADS if set, else CTranslate2 default
+    # Recycle the worker process after a task when its RSS exceeds this (0 = off).
+    worker_max_rss_mb: int = 0
     local_diarization_enabled: bool = False
     hf_token: str | None = None
     local_vision_enabled: bool = False
@@ -76,6 +82,11 @@ class Settings(BaseSettings):
     upload_chunk_size: int = 8 * 1024**2
     proxy_height: int = 720
     proxy_video_bitrate: str = "2500k"
+    # 0 = let ffmpeg pick (one thread per core). Small containers (512 MB) need 1-2: libx264
+    # allocates per-thread frame buffers and gets OOM-killed on many-core hosts.
+    ffmpeg_threads: int = 0
+    # Trade encode speed/size for memory: ultrafast proxies, capped export presets.
+    ffmpeg_low_memory: bool = False
     work_dir: str = "./data/work"
 
     # Rate limiting

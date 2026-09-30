@@ -35,7 +35,6 @@ from cutpilot.db.models import (
     TranscriptWord,
 )
 from cutpilot.media.proxy import extract_frames
-from cutpilot.media.scenes import detect_scenes, sample_times_for_scenes
 from cutpilot.media.silence import detect_silence, measure_loudness, suggest_silence_cuts
 from cutpilot.services.events import sync_publisher
 from cutpilot.services.job_service import JobContext
@@ -573,6 +572,8 @@ def scene_detection(
     try:
         with storage.as_local_file(source.storage_key, suffix=".mp4") as video:
             ctx.progress(0.1, "Detecting shot boundaries")
+            from cutpilot.media.scenes import detect_scenes  # PySceneDetect + OpenCV: ~50 MB
+
             scenes = detect_scenes(
                 video,
                 threshold=params["threshold"],
@@ -702,6 +703,8 @@ def vision_analysis(
         if scenes_row
         else [{"index": 0, "start": 0.0, "end": duration}]
     )
+    from cutpilot.media.scenes import sample_times_for_scenes
+
     times = sample_times_for_scenes(scenes, max_frames=max_frames)
     if not times:
         raise ValidationFailed("No frames to sample")

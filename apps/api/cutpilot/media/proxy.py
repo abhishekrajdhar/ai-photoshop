@@ -46,7 +46,8 @@ def make_proxy(
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        # ultrafast halves libx264 memory (77 vs 129 MiB at 720p, 1 thread); proxies are throwaway
+        "ultrafast" if settings.ffmpeg_low_memory else "veryfast",
         "-crf",
         "23",
         "-maxrate",
